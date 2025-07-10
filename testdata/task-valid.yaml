@@ -1,0 +1,91 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: test-task-valid
+  annotations:
+    description: A valid task for testing parameter and result validation
+spec:
+  description: Test task with parameters, results, and workspaces
+  params:
+    - name: url
+      type: string
+      description: Git repository URL
+    - name: revision
+      type: string
+      default: main
+      description: Git revision to clone
+    - name: depth
+      type: string
+      default: "1"
+      description: Clone depth
+    - name: buildArgs
+      type: array
+      default: ["--verbose"]
+      description: Build arguments
+    - name: config
+      type: object
+      default:
+        debug: "false"
+        timeout: "300"
+      description: Build configuration
+  workspaces:
+    - name: source
+      description: Source code workspace
+    - name: cache
+      description: Build cache workspace
+      optional: true
+  results:
+    - name: commit
+      type: string
+      description: Git commit hash
+    - name: files
+      type: array
+      description: List of changed files
+    - name: metadata
+      type: object
+      description: Build metadata
+  volumes:
+    - name: docker-socket
+      hostPath:
+        path: /var/run/docker.sock
+        type: Socket
+  steps:
+    - name: clone
+      image: alpine/git:latest
+      script: |
+        git clone $(params.url) -b $(params.revision) --depth $(params.depth) /workspace/source
+        cd /workspace/source
+        git rev-parse HEAD | tee $(results.commit.path)
+        git diff --name-only HEAD~1 HEAD | tee $(results.files.path)
+        echo '{"author": "test", "timestamp": "2023-01-01T00:00:00Z"}' | tee $(results.metadata.path)
+      volumeMounts:
+        - name: docker-socket
+          mountPath: /var/run/docker.sock
+    - name: build
+      image: alpine:latest
+      script: |
+        cd /workspace/source
+        echo "Building with args: $(params.buildArgs[*])"
+        echo "Debug mode: $(params.config.debug)"
+        echo "Timeout: $(params.config.timeout)"
+        make build $(params.buildArgs[*])
+      env:
+        - name: DEBUG
+          value: $(params.config.debug)
+        - name: TIMEOUT
+          value: $(params.config.timeout)
+    - name: test
+      image: alpine:latest
+      script: |
+        cd /workspace/source
+        echo "Running tests"
+        make test
+      onError: continue
+  sidecars:
+    - name: docker-daemon
+      image: docker:dind
+      securityContext:
+        privileged: true
+      volumeMounts:
+        - name: docker-socket
+          mountPath: /var/run/docker.sock 

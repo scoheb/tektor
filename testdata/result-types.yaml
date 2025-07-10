@@ -1,0 +1,124 @@
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: test-pipeline-result-types
+  annotations:
+    description: A pipeline for testing result type validation
+spec:
+  description: Test pipeline with different result types and type compatibility
+  tasks:
+    - name: producer
+      taskSpec:
+        description: Produce results of different types
+        results:
+          - name: stringResult
+            type: string
+            description: A string result
+          - name: arrayResult
+            type: array
+            description: An array result
+          - name: objectResult
+            type: object
+            description: An object result
+        steps:
+          - name: produce
+            image: alpine:latest
+            script: |
+              echo "hello world" | tee $(results.stringResult.path)
+              echo -e "item1\nitem2\nitem3" | tee $(results.arrayResult.path)
+              echo '{"key": "value", "number": 42}' | tee $(results.objectResult.path)
+    
+    - name: string-consumer
+      taskSpec:
+        description: Consume string results
+        params:
+          - name: stringValue
+            type: string
+            description: String value parameter
+          - name: arrayItem
+            type: string
+            description: Single array item
+          - name: objectProperty
+            type: string
+            description: Object property value
+        steps:
+          - name: consume
+            image: alpine:latest
+            script: |
+              echo "String value: $(params.stringValue)"
+              echo "Array item: $(params.arrayItem)"
+              echo "Object property: $(params.objectProperty)"
+      params:
+        - name: stringValue
+          value: $(tasks.producer.results.stringResult)  # Valid: string to string
+        - name: arrayItem
+          value: $(tasks.producer.results.arrayResult[0])  # Valid: array element to string
+        - name: objectProperty
+          value: $(tasks.producer.results.objectResult.key)  # Valid: object property to string
+      runAfter:
+        - producer
+    
+    - name: array-consumer
+      taskSpec:
+        description: Consume array results
+        params:
+          - name: arrayValue
+            type: array
+            description: Array value parameter
+        steps:
+          - name: consume
+            image: alpine:latest
+            script: |
+              echo "Array values: $(params.arrayValue[*])"
+      params:
+        - name: arrayValue
+          value: $(tasks.producer.results.arrayResult)  # Valid: array to array
+      runAfter:
+        - producer
+    
+    - name: object-consumer
+      taskSpec:
+        description: Consume object results
+        params:
+          - name: objectValue
+            type: object
+            description: Object value parameter
+        steps:
+          - name: consume
+            image: alpine:latest
+            script: |
+              echo "Object key: $(params.objectValue.key)"
+              echo "Object number: $(params.objectValue.number)"
+      params:
+        - name: objectValue
+          value: $(tasks.producer.results.objectResult)  # Valid: object to object
+      runAfter:
+        - producer
+    
+    - name: type-mismatch-consumer
+      taskSpec:
+        description: Invalid type usage examples
+        params:
+          - name: invalidStringToArray
+            type: array
+            description: Invalid string to array
+          - name: invalidArrayToString
+            type: string
+            description: Invalid array to string without indexing
+          - name: invalidObjectToString
+            type: string
+            description: Invalid object to string without property access
+        steps:
+          - name: consume
+            image: alpine:latest
+            script: |
+              echo "This should fail validation"
+      params:
+        - name: invalidStringToArray
+          value: $(tasks.producer.results.stringResult)  # Invalid: string to array
+        - name: invalidArrayToString
+          value: $(tasks.producer.results.arrayResult)  # Invalid: array to string without indexing
+        - name: invalidObjectToString
+          value: $(tasks.producer.results.objectResult)  # Invalid: object to string without property access
+      runAfter:
+        - producer 

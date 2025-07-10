@@ -1,0 +1,85 @@
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: test-pipeline-git-resolver
+  annotations:
+    description: A pipeline using git resolver for testing remote task resolution
+spec:
+  description: Test pipeline with git resolver task references
+  params:
+    - name: gitUrl
+      type: string
+      description: Git repository URL to clone
+    - name: gitRevision
+      type: string
+      default: main
+      description: Git revision to clone
+    - name: taskGitUrl
+      type: string
+      description: Git repository URL for task definition
+    - name: taskGitRevision
+      type: string
+      default: main
+      description: Git revision for task definition
+  workspaces:
+    - name: source
+      description: Source code workspace
+  tasks:
+    - name: clone-from-git
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: $(params.taskGitUrl)
+          - name: pathInRepo
+            value: task/git-clone/0.9/git-clone.yaml
+          - name: revision
+            value: $(params.taskGitRevision)
+      params:
+        - name: url
+          value: $(params.gitUrl)
+        - name: revision
+          value: $(params.gitRevision)
+        - name: deleteExisting
+          value: "true"
+      workspaces:
+        - name: output
+          workspace: source
+    - name: build-from-git
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/tektoncd/catalog.git
+          - name: pathInRepo
+            value: task/buildah/0.6/buildah.yaml
+          - name: revision
+            value: main
+      params:
+        - name: IMAGE
+          value: "example.com/my-app:latest"
+        - name: DOCKERFILE
+          value: "./Dockerfile"
+      workspaces:
+        - name: source
+          workspace: source
+      runAfter:
+        - clone-from-git
+    - name: test-with-embedded
+      taskSpec:
+        description: Run tests with embedded task
+        workspaces:
+          - name: source
+            description: Source workspace
+        steps:
+          - name: test
+            image: alpine:latest
+            script: |
+              cd /workspace/source
+              echo "Running tests"
+              make test
+      workspaces:
+        - name: source
+          workspace: source
+      runAfter:
+        - build-from-git 

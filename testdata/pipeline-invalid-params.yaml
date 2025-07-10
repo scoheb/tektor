@@ -1,0 +1,62 @@
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: test-pipeline-invalid-params
+  annotations:
+    description: A pipeline with parameter validation errors for testing
+spec:
+  description: Test pipeline with parameter validation errors
+  params:
+    - name: gitUrl
+      type: string
+      description: Git repository URL
+    - name: gitRevision
+      type: string
+      # No default value, making this required
+      description: Git revision to clone
+  tasks:
+    - name: clone
+      taskSpec:
+        description: Clone git repository
+        params:
+          - name: url
+            type: string
+            description: Git repository URL
+          - name: revision
+            type: string
+            description: Git revision to clone
+          - name: depth
+            type: string
+            # Required parameter not provided by pipeline task
+            description: Clone depth
+        steps:
+          - name: clone
+            image: alpine/git:latest
+            script: |
+              git clone $(params.url) -b $(params.revision) --depth $(params.depth)
+      params:
+        - name: url
+          value: $(params.gitUrl)
+        - name: revision
+          value: $(params.gitRevision)
+        # Missing required 'depth' parameter
+        - name: undefinedParam
+          value: $(params.nonExistentParam)  # Parameter not defined in pipeline spec
+    - name: build
+      taskSpec:
+        description: Build the application
+        params:
+          - name: buildMode
+            type: string
+            description: Build mode
+        steps:
+          - name: build
+            image: alpine:latest
+            script: |
+              echo "Building in $(params.buildMode) mode"
+              make build
+      params:
+        - name: buildMode
+          value: $(params.undefinedBuildMode)  # Another undefined parameter
+      runAfter:
+        - clone 

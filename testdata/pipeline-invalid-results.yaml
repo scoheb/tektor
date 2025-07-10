@@ -1,0 +1,87 @@
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: test-pipeline-invalid-results
+  annotations:
+    description: A pipeline with result validation errors for testing
+spec:
+  description: Test pipeline with result validation errors
+  params:
+    - name: gitUrl
+      type: string
+      description: Git repository URL
+  tasks:
+    - name: clone
+      taskSpec:
+        description: Clone git repository
+        params:
+          - name: url
+            type: string
+            description: Git repository URL
+        results:
+          - name: commit
+            type: string
+            description: Git commit hash
+        steps:
+          - name: clone
+            image: alpine/git:latest
+            script: |
+              git clone $(params.url)
+              git rev-parse HEAD | tee $(results.commit.path)
+      params:
+        - name: url
+          value: $(params.gitUrl)
+    - name: build
+      taskSpec:
+        description: Build the application
+        params:
+          - name: commit
+            type: string
+            description: Git commit hash
+        steps:
+          - name: build
+            image: alpine:latest
+            script: |
+              echo "Building commit $(params.commit)"
+              make build
+      params:
+        - name: commit
+          value: $(tasks.nonexistent.results.commit)  # Non-existent task
+      runAfter:
+        - clone
+    - name: test
+      taskSpec:
+        description: Run tests
+        params:
+          - name: info
+            type: string
+            description: Build info
+        steps:
+          - name: test
+            image: alpine:latest
+            script: |
+              echo "Testing with info: $(params.info)"
+              make test
+      params:
+        - name: info
+          value: $(tasks.clone.results.nonexistent)  # Non-existent result
+      runAfter:
+        - build
+    - name: deploy
+      taskSpec:
+        description: Deploy the application
+        params:
+          - name: imageTag
+            type: string
+            description: Image tag
+        steps:
+          - name: deploy
+            image: alpine:latest
+            script: |
+              echo "Deploying image with tag $(params.imageTag)"
+              kubectl apply -f deployment.yaml
+      params:
+        - name: imageTag
+          value: $(tasks.missing-task.results.tag)  # Another non-existent task
+      runAfter:
+        - test 

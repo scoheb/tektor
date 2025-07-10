@@ -1,0 +1,67 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: test-task-invalid
+  annotations:
+    description: A task with validation errors for testing
+spec:
+  description: Test task with validation errors
+  params:
+    - name: url
+      type: string
+      description: Git repository URL
+    - name: revision
+      type: string
+      # No default value, making this required
+      description: Git revision to clone
+    - name: invalidParam
+      type: invalidType  # Invalid parameter type
+      description: Invalid parameter
+  workspaces:
+    - name: source
+      description: Source code workspace
+    - name: conflicting
+      description: Workspace with conflicting mount path
+      mountPath: /workspace/source
+    - name: another-conflicting
+      description: Another workspace with same mount path
+      mountPath: /workspace/source  # Conflicting mount path
+  results:
+    - name: commit
+      type: string
+      description: Git commit hash
+    - name: invalidResult
+      type: invalidType  # Invalid result type
+      description: Invalid result
+  volumes:
+    - name: invalid-volume
+      # Missing volume source
+  steps:
+    - name: clone
+      image: alpine/git:latest
+      script: |
+        git clone $(params.url) -b $(params.revision) /workspace/source
+        cd /workspace/source
+        git rev-parse HEAD | tee $(results.commit.path)
+        echo "Using undefined param: $(params.undefinedParam)"  # Undefined parameter
+        echo "Writing to undefined result: $(results.undefinedResult.path)"  # Undefined result
+    - name: build
+      image: alpine:latest
+      script: |
+        cd /workspace/source
+        echo "Building"
+        make build
+      volumeMounts:
+        - name: nonexistent-volume  # Volume not defined
+          mountPath: /mnt/data
+    - name: invalid-step-name-
+      # Invalid step name ending with hyphen
+      image: alpine:latest
+      script: |
+        echo "Invalid step"
+  sidecars:
+    - name: invalid-sidecar-name-
+      # Invalid sidecar name ending with hyphen
+      image: alpine:latest
+      script: |
+        echo "Invalid sidecar" 

@@ -1,0 +1,171 @@
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: test-pipeline-valid
+  annotations:
+    description: A valid pipeline for testing parameter and result validation
+spec:
+  description: Test pipeline with embedded tasks demonstrating parameter and result references
+  params:
+    - name: gitUrl
+      type: string
+      description: Git repository URL
+    - name: gitRevision
+      type: string
+      default: main
+      description: Git revision to clone
+    - name: buildArgs
+      type: array
+      default: ["--verbose"]
+      description: Build arguments
+  workspaces:
+    - name: source
+      description: Source code workspace
+    - name: cache
+      description: Build cache workspace
+      optional: true
+  results:
+    - name: commitHash
+      type: string
+      description: Git commit hash
+      value: $(tasks.clone.results.commit)
+    - name: buildStatus
+      type: string
+      description: Build status
+      value: $(tasks.build.results.status)
+  tasks:
+    - name: clone
+      taskSpec:
+        description: Clone git repository
+        params:
+          - name: url
+            type: string
+            description: Git repository URL
+          - name: revision
+            type: string
+            description: Git revision to clone
+        workspaces:
+          - name: output
+            description: Output workspace for cloned source
+        results:
+          - name: commit
+            type: string
+            description: Git commit hash
+        steps:
+          - name: clone
+            image: alpine/git:latest
+            script: |
+              git clone $(params.url) -b $(params.revision) /workspace/output
+              cd /workspace/output
+              git rev-parse HEAD | tee $(results.commit.path)
+      params:
+        - name: url
+          value: $(params.gitUrl)
+        - name: revision
+          value: $(params.gitRevision)
+      workspaces:
+        - name: output
+          workspace: source
+    - name: build
+      taskSpec:
+        description: Build the application
+        params:
+          - name: buildArgs
+            type: array
+            description: Build arguments
+        workspaces:
+          - name: source
+            description: Source workspace
+          - name: cache
+            description: Cache workspace
+            optional: true
+        results:
+          - name: status
+            type: string
+            description: Build status
+        steps:
+          - name: build
+            image: alpine:latest
+            script: |
+              cd /workspace/source
+              echo "Building with args: $(params.buildArgs[*])"
+              make build $(params.buildArgs[*])
+              echo "success" | tee $(results.status.path)
+      params:
+        - name: buildArgs
+          value: $(params.buildArgs)
+      workspaces:
+        - name: source
+          workspace: source
+        - name: cache
+          workspace: cache
+      runAfter:
+        - clone
+    - name: test
+      taskSpec:
+        description: Run tests
+        params:
+          - name: commit
+            type: string
+            description: Git commit hash
+        workspaces:
+          - name: source
+            description: Source workspace
+        results:
+          - name: testResults
+            type: string
+            description: Test results
+        steps:
+          - name: test
+            image: alpine:latest
+            script: |
+              cd /workspace/source
+              echo "Running tests for commit $(params.commit)"
+              make test
+              echo "passed" | tee $(results.testResults.path)
+      params:
+        - name: commit
+          value: $(tasks.clone.results.commit)
+      workspaces:
+        - name: source
+          workspace: source
+      runAfter:
+        - build
+  finally:
+    - name: cleanup
+      taskSpec:
+        description: Cleanup resources
+        params:
+          - name: buildStatus
+            type: string
+            description: Build status
+        steps:
+          - name: cleanup
+            image: alpine:latest
+            script: |
+              echo "Cleaning up, build status: $(params.buildStatus)"
+              rm -rf /tmp/build
+      params:
+        - name: buildStatus
+          value: $(tasks.build.results.status)
+    - name: report
+      taskSpec:
+        description: Generate build report
+        params:
+          - name: commit
+            type: string
+            description: Git commit hash
+          - name: buildStatus
+            type: string
+            description: Build status
+        steps:
+          - name: report
+            image: alpine:latest
+            script: |
+              echo "Pipeline completed for commit $(params.commit)"
+              echo "Build status: $(params.buildStatus)"
+      params:
+        - name: commit
+          value: $(tasks.clone.results.commit)
+        - name: buildStatus
+          value: $(tasks.build.results.status) 

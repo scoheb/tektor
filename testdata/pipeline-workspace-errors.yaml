@@ -1,0 +1,96 @@
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: test-pipeline-workspace-errors
+  annotations:
+    description: A pipeline with workspace validation errors for testing
+spec:
+  description: Test pipeline with workspace validation errors
+  params:
+    - name: gitUrl
+      type: string
+      description: Git repository URL
+  workspaces:
+    - name: source
+      description: Source code workspace
+    - name: cache
+      description: Build cache workspace
+      # Required workspace (no optional flag)
+  tasks:
+    - name: clone
+      taskSpec:
+        description: Clone git repository
+        params:
+          - name: url
+            type: string
+            description: Git repository URL
+        workspaces:
+          - name: output
+            description: Output workspace for cloned source
+          - name: cache
+            description: Cache workspace
+            optional: true
+        steps:
+          - name: clone
+            image: alpine/git:latest
+            script: |
+              git clone $(params.url) /workspace/output
+      params:
+        - name: url
+          value: $(params.gitUrl)
+      workspaces:
+        - name: output
+          workspace: source
+        - name: cache
+          workspace: undefinedWorkspace  # Workspace not defined in pipeline spec
+    - name: build
+      taskSpec:
+        description: Build the application
+        workspaces:
+          - name: source
+            description: Source workspace
+          - name: cache
+            description: Cache workspace
+          - name: artifacts
+            description: Build artifacts workspace
+            # Required workspace not provided by pipeline task
+        steps:
+          - name: build
+            image: alpine:latest
+            script: |
+              cd /workspace/source
+              echo "Building"
+              make build
+              cp build/* /workspace/artifacts/
+      workspaces:
+        - name: source
+          workspace: source
+        - name: cache
+          workspace: cache
+        # Missing required 'artifacts' workspace binding
+      runAfter:
+        - clone
+    - name: test
+      taskSpec:
+        description: Run tests
+        workspaces:
+          - name: source
+            description: Source workspace
+            mountPath: /workspace/src  # Custom mount path
+          - name: testResults
+            description: Test results workspace
+            mountPath: /workspace/src  # Conflicting mount path
+        steps:
+          - name: test
+            image: alpine:latest
+            script: |
+              cd /workspace/src
+              echo "Running tests"
+              make test
+      workspaces:
+        - name: source
+          workspace: source
+        - name: testResults
+          workspace: source  # Same workspace bound to multiple task workspaces with conflicting mount paths
+      runAfter:
+        - build 

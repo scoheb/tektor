@@ -1,0 +1,107 @@
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  name: test-pipelinerun-invalid
+  annotations:
+    description: A pipelinerun with validation errors for testing
+spec:
+  pipelineSpec:
+    description: Test pipeline with validation errors
+    params:
+      - name: gitUrl
+        type: string
+        description: Git repository URL
+      - name: gitRevision
+        type: string
+        # No default value, making this required
+        description: Git revision to clone
+      - name: buildArgs
+        type: array
+        description: Build arguments
+    workspaces:
+      - name: source
+        description: Source code workspace
+      - name: cache
+        description: Build cache workspace
+        # Required workspace (no optional flag)
+    tasks:
+      - name: clone
+        taskSpec:
+          description: Clone git repository
+          params:
+            - name: url
+              type: string
+              description: Git repository URL
+            - name: revision
+              type: string
+              description: Git revision to clone
+          workspaces:
+            - name: output
+              description: Output workspace for cloned source
+          results:
+            - name: commit
+              type: string
+              description: Git commit hash
+          steps:
+            - name: clone
+              image: alpine/git:latest
+              script: |
+                git clone $(params.url) -b $(params.revision) /workspace/output
+                cd /workspace/output
+                git rev-parse HEAD | tee $(results.commit.path)
+        params:
+          - name: url
+            value: $(params.gitUrl)
+          - name: revision
+            value: $(params.gitRevision)
+        workspaces:
+          - name: output
+            workspace: source
+      - name: build
+        taskSpec:
+          description: Build the application
+          params:
+            - name: buildArgs
+              type: array
+              description: Build arguments
+            - name: commit
+              type: string
+              description: Git commit hash
+          workspaces:
+            - name: source
+              description: Source workspace
+            - name: cache
+              description: Cache workspace
+          steps:
+            - name: build
+              image: alpine:latest
+              script: |
+                cd /workspace/source
+                echo "Building commit $(params.commit) with args: $(params.buildArgs[*])"
+                make build $(params.buildArgs[*])
+        params:
+          - name: buildArgs
+            value: $(params.buildArgs)
+          - name: commit
+            value: $(tasks.clone.results.commit)
+        workspaces:
+          - name: source
+            workspace: source
+          - name: cache
+            workspace: cache
+        runAfter:
+          - clone
+  params:
+    - name: gitUrl
+      value: https://github.com/example/repo.git
+    # Missing required gitRevision parameter
+    - name: buildArgs
+      value: "should be array"  # Type mismatch - should be array, not string
+    - name: undefinedParam
+      value: "not defined in pipeline spec"  # Parameter not defined in pipeline spec
+  workspaces:
+    - name: source
+      emptyDir: {}
+    # Missing required cache workspace
+    - name: undefinedWorkspace
+      emptyDir: {}  # Workspace not defined in pipeline spec 

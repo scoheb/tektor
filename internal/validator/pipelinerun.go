@@ -11,8 +11,21 @@ import (
 )
 
 func ValidatePipelineRun(ctx context.Context, pr v1.PipelineRun) error {
+	return ValidatePipelineRunWithYAML(ctx, pr, nil)
+}
+
+func ValidatePipelineRunWithYAML(ctx context.Context, pr v1.PipelineRun, rawYAML []byte) error {
+	var allErrors error
+
+	// Validate parameter references in the raw YAML content if pipeline spec is embedded
+	if rawYAML != nil && pr.Spec.PipelineSpec != nil {
+		if err := ValidateParameterReferences(*pr.Spec.PipelineSpec, rawYAML); err != nil {
+			allErrors = multierror.Append(allErrors, fmt.Errorf("parameter reference validation: %w", err))
+		}
+	}
+
 	if err := pr.Validate(ctx); err != nil {
-		var allErrors error
+		var validationErrors error
 		for _, e := range err.WrappedErrors() {
 			details := e.Details
 			if len(details) > 0 {
@@ -20,13 +33,13 @@ func ValidatePipelineRun(ctx context.Context, pr v1.PipelineRun) error {
 			}
 			message := strings.TrimSuffix(e.Message, ": ")
 			for _, p := range e.Paths {
-				allErrors = multierror.Append(allErrors, fmt.Errorf("%v: %v%v", message, p, details))
+				validationErrors = multierror.Append(validationErrors, fmt.Errorf("%v: %v%v", message, p, details))
 			}
 			if len(e.Paths) == 0 {
-				allErrors = multierror.Append(allErrors, fmt.Errorf("%v: %v", message, details))
+				validationErrors = multierror.Append(validationErrors, fmt.Errorf("%v: %v", message, details))
 			}
 		}
-		return allErrors
+		allErrors = multierror.Append(allErrors, validationErrors)
 	}
 
 	if pipelineSpec := pr.Spec.PipelineSpec; pipelineSpec != nil {
@@ -35,9 +48,9 @@ func ValidatePipelineRun(ctx context.Context, pr v1.PipelineRun) error {
 			ObjectMeta: metav1.ObjectMeta{Name: "noname"},
 			Spec:       *pipelineSpec,
 		}
-		if err := ValidatePipeline(ctx, p); err != nil {
-			return err
+		if err := ValidatePipelineWithYAML(ctx, p, rawYAML); err != nil {
+			allErrors = multierror.Append(allErrors, err)
 		}
 	}
-	return nil
+	return allErrors
 }
