@@ -244,11 +244,6 @@ validate_file() {
         tektor_cmd="$tektor_cmd --param \"pr-base-branch=$INPUT_PR_BASE_BRANCH\""
     fi
     
-    # Add custom tektor arguments
-    if [[ -n "$INPUT_TEKTOR_ARGS" ]]; then
-        tektor_cmd="$tektor_cmd $INPUT_TEKTOR_ARGS"
-    fi
-    
     # Add the file to validate
     tektor_cmd="$tektor_cmd \"$file\""
     
