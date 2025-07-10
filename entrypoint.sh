@@ -210,12 +210,12 @@ validate_file() {
     
     log_info "Validating $file..."
     
-    # Prepare tektor command
-    local tektor_cmd="tektor validate"
+    # Prepare tektor command as an array for better argument handling
+    local tektor_args=("tektor" "validate")
     
     # Add verbose flag if enabled
     if [[ "$INPUT_VERBOSE" == "true" ]]; then
-        tektor_cmd="$tektor_cmd --verbose"
+        tektor_args+=("--verbose")
     fi
     
     # Add parameters if provided
@@ -223,23 +223,26 @@ validate_file() {
         while IFS= read -r param; do
             param=$(echo "$param" | xargs) # trim whitespace
             if [[ -n "$param" ]]; then
-                tektor_cmd="$tektor_cmd --param \"$param\""
+                tektor_args+=("--param" "$param")
             fi
         done <<< "$INPUT_PARAMETERS"
     fi
     
     # Add custom tektor arguments
     if [[ -n "$INPUT_TEKTOR_ARGS" ]]; then
-        tektor_cmd="$tektor_cmd $INPUT_TEKTOR_ARGS"
+        log_debug "Adding tektor-args: $INPUT_TEKTOR_ARGS"
+        # Use eval to properly parse the arguments string into an array
+        eval "tektor_extra_args=($INPUT_TEKTOR_ARGS)"
+        tektor_args+=("${tektor_extra_args[@]}")
     fi
     
     # Add the file to validate
-    tektor_cmd="$tektor_cmd \"$file\""
+    tektor_args+=("$file")
     
-    log_debug "Running: $tektor_cmd"
+    log_debug "Running: ${tektor_args[*]}"
     
     # Run tektor validation
-    if eval "$tektor_cmd" > "$temp_output" 2>&1; then
+    if "${tektor_args[@]}" > "$temp_output" 2>&1; then
         log_success "✅ $file - Validation passed"
         VALIDATED_FILES+=("$file")
         
