@@ -61,23 +61,5 @@ outputs:
     description: 'Number of validation warnings found'
 
 runs:
-  using: 'composite'
-  steps:
-    - name: Setup Go
-      uses: actions/setup-go@v5
-      with:
-        go-version: '1.22'
-        
-    - name: Build tektor
-      shell: bash
-      run: |
-        cd ${{ github.action_path }}
-        go build -o tektor main.go
-        
-    - name: Run tektor validation
-      shell: bash
-      env:
-        GITHUB_TOKEN: ${{ github.token }}
-      run: |
-        export PATH="${{ github.action_path }}:$PATH"
-        ${{ github.action_path }}/entrypoint.sh 
+  using: 'docker'
+  image: 'docker://ghcr.io/scoheb/tektor:latest' 

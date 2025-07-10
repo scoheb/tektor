@@ -76,8 +76,6 @@ runs:
         
     - name: Run tektor validation
       shell: bash
-      env:
-        GITHUB_TOKEN: ${{ github.token }}
       run: |
         export PATH="${{ github.action_path }}:$PATH"
         ${{ github.action_path }}/entrypoint.sh 
