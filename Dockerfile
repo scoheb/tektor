@@ -22,6 +22,9 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build -ldflags="-s -w" -o t
 # Final stage
 FROM alpine:latest
 
+# Cache busting argument
+ARG CACHE_BUST=1
+
 # Install required packages
 RUN apk add --no-cache \
     bash \

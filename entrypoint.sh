@@ -11,19 +11,66 @@ NC='\033[0m' # No Color
 
 # GitHub Action inputs - handle both underscore and dash formats
 INPUT_FILES=${INPUT_FILES:-""}
-INPUT_FILE_PATTERNS=${INPUT_FILE_PATTERNS:-${INPUT_FILE-PATTERNS:-"**/*.yaml,**/*.yml,**/*.json"}}
-INPUT_EXCLUDE_PATTERNS=${INPUT_EXCLUDE_PATTERNS:-${INPUT_EXCLUDE-PATTERNS:-".github/**,docs/**,README.md,**/README.md"}}
-INPUT_FAIL_ON_ERROR=${INPUT_FAIL_ON_ERROR:-${INPUT_FAIL-ON-ERROR:-"true"}}
+
+# Handle file patterns
+if [[ -n "${INPUT_FILE_PATTERNS:-}" ]]; then
+    # Use underscore version if available
+    INPUT_FILE_PATTERNS="${INPUT_FILE_PATTERNS}"
+elif [[ -n "${INPUT_FILE-PATTERNS:-}" ]]; then
+    # Use dash version if available  
+    INPUT_FILE_PATTERNS="${INPUT_FILE-PATTERNS}"
+else
+    # Default value
+    INPUT_FILE_PATTERNS="**/*.yaml,**/*.yml,**/*.json"
+fi
+
+# Handle exclude patterns
+if [[ -n "${INPUT_EXCLUDE_PATTERNS:-}" ]]; then
+    INPUT_EXCLUDE_PATTERNS="${INPUT_EXCLUDE_PATTERNS}"
+elif [[ -n "${INPUT_EXCLUDE-PATTERNS:-}" ]]; then
+    INPUT_EXCLUDE_PATTERNS="${INPUT_EXCLUDE-PATTERNS}"
+else
+    INPUT_EXCLUDE_PATTERNS=".github/**,docs/**,README.md,**/README.md"
+fi
+
+# Handle fail on error
+if [[ -n "${INPUT_FAIL_ON_ERROR:-}" ]]; then
+    INPUT_FAIL_ON_ERROR="${INPUT_FAIL_ON_ERROR}"
+elif [[ -n "${INPUT_FAIL-ON-ERROR:-}" ]]; then
+    INPUT_FAIL_ON_ERROR="${INPUT_FAIL-ON-ERROR}"
+else
+    INPUT_FAIL_ON_ERROR="true"
+fi
+
+# Handle verbose
 INPUT_VERBOSE=${INPUT_VERBOSE:-"false"}
+
+# Handle parameters
 INPUT_PARAMETERS=${INPUT_PARAMETERS:-""}
-INPUT_DETECT_TEKTON_FILES=${INPUT_DETECT_TEKTON_FILES:-${INPUT_DETECT-TEKTON-FILES:-"true"}}
-INPUT_CHANGED_FILES_ONLY=${INPUT_CHANGED_FILES_ONLY:-${INPUT_CHANGED-FILES-ONLY:-"true"}}
+
+# Handle detect tekton files
+if [[ -n "${INPUT_DETECT_TEKTON_FILES:-}" ]]; then
+    INPUT_DETECT_TEKTON_FILES="${INPUT_DETECT_TEKTON_FILES}"
+elif [[ -n "${INPUT_DETECT-TEKTON-FILES:-}" ]]; then
+    INPUT_DETECT_TEKTON_FILES="${INPUT_DETECT-TEKTON-FILES}"
+else
+    INPUT_DETECT_TEKTON_FILES="true"
+fi
+
+# Handle changed files only
+if [[ -n "${INPUT_CHANGED_FILES_ONLY:-}" ]]; then
+    INPUT_CHANGED_FILES_ONLY="${INPUT_CHANGED_FILES_ONLY}"
+elif [[ -n "${INPUT_CHANGED-FILES-ONLY:-}" ]]; then
+    INPUT_CHANGED_FILES_ONLY="${INPUT_CHANGED-FILES-ONLY}"
+else
+    INPUT_CHANGED_FILES_ONLY="true"
+fi
 
 # Handle tektor-args specially since it's the most problematic
-if [[ -n "${INPUT_TEKTOR-ARGS:-}" ]]; then
-    INPUT_TEKTOR_ARGS="${INPUT_TEKTOR-ARGS}"
-elif [[ -n "${INPUT_TEKTOR_ARGS:-}" ]]; then
+if [[ -n "${INPUT_TEKTOR_ARGS:-}" ]]; then
     INPUT_TEKTOR_ARGS="${INPUT_TEKTOR_ARGS}"
+elif [[ -n "${INPUT_TEKTOR-ARGS:-}" ]]; then
+    INPUT_TEKTOR_ARGS="${INPUT_TEKTOR-ARGS}"
 else
     INPUT_TEKTOR_ARGS=""
 fi
