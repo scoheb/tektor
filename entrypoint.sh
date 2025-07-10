@@ -71,7 +71,7 @@ get_changed_files() {
     local changed_files=()
     
     if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
-        log_info "Detecting changed files in pull request..."
+        log_info "Detecting changed files in pull request..." >&2
         
         # Get the base and head SHA
         local base_sha="${GITHUB_BASE_REF:-main}"
@@ -79,14 +79,14 @@ get_changed_files() {
         
         # Get changed files using git diff
         if git rev-parse --verify "origin/$base_sha" >/dev/null 2>&1; then
-            log_debug "Using git diff to find changed files"
+            log_debug "Using git diff to find changed files" >&2
             while IFS= read -r -d '' file; do
                 if [[ -f "$file" ]]; then
                     changed_files+=("$file")
                 fi
             done < <(git diff --name-only --diff-filter=AM "origin/$base_sha"...HEAD -z 2>/dev/null || true)
         else
-            log_warning "Could not find base branch origin/$base_sha, falling back to GitHub API"
+            log_warning "Could not find base branch origin/$base_sha, falling back to GitHub API" >&2
             
             # Fallback: use GitHub API if available
             if [[ -n "$GITHUB_TOKEN" ]]; then
@@ -94,7 +94,7 @@ get_changed_files() {
                 pr_number=$(jq -r '.number' "$GITHUB_EVENT_PATH" 2>/dev/null || echo "")
                 
                 if [[ -n "$pr_number" && "$pr_number" != "null" ]]; then
-                    log_debug "Using GitHub API to get changed files for PR #$pr_number"
+                    log_debug "Using GitHub API to get changed files for PR #$pr_number" >&2
                     local api_url="https://api.github.com/repos/$GITHUB_REPOSITORY/pulls/$pr_number/files"
                     
                     while IFS= read -r file; do
@@ -106,7 +106,7 @@ get_changed_files() {
             fi
         fi
     else
-        log_info "Not a pull request event, will scan all matching files"
+        log_info "Not a pull request event, will scan all matching files" >&2
     fi
     
     printf '%s\n' "${changed_files[@]}"
@@ -130,7 +130,6 @@ find_matching_files() {
         done
     elif [[ "$INPUT_CHANGED_FILES_ONLY" == "true" && "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
         # Get changed files from PR
-        log_info "Detecting changed files in pull request..."
         while IFS= read -r file; do
             if [[ -n "$file" ]]; then
                 files_to_check+=("$file")
