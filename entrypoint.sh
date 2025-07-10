@@ -230,7 +230,7 @@ validate_file() {
     
     # Add custom tektor arguments
     if [[ -n "$INPUT_TEKTOR_ARGS" ]]; then
-        log_debug "Adding tektor-args: $INPUT_TEKTOR_ARGS"
+        log_info "Adding tektor-args: $INPUT_TEKTOR_ARGS"
         # Use eval to properly parse the arguments string into an array
         eval "tektor_extra_args=($INPUT_TEKTOR_ARGS)"
         tektor_args+=("${tektor_extra_args[@]}")
@@ -239,7 +239,7 @@ validate_file() {
     # Add the file to validate
     tektor_args+=("$file")
     
-    log_debug "Running: ${tektor_args[*]}"
+    log_info "Running: ${tektor_args[*]}"
     
     # Run tektor validation
     if "${tektor_args[@]}" > "$temp_output" 2>&1; then
@@ -269,6 +269,19 @@ main() {
     log_info "Repository: $GITHUB_REPOSITORY"
     log_info "Event: $GITHUB_EVENT_NAME"
     log_info "SHA: $GITHUB_SHA"
+    
+    # Debug: Show tektor-args input
+    if [[ -n "$INPUT_TEKTOR_ARGS" ]]; then
+        log_info "Tektor-args input: '$INPUT_TEKTOR_ARGS'"
+    else
+        log_info "No tektor-args provided"
+    fi
+    
+    # Debug: Show all INPUT_ environment variables
+    log_info "Environment variables:"
+    env | grep "^INPUT_" | sort | while read -r var; do
+        log_info "  $var"
+    done
     
     # Check if tektor is available
     if ! command -v tektor &> /dev/null; then
