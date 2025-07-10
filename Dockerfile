@@ -7,17 +7,17 @@ RUN apk add --no-cache git
 # Set working directory
 WORKDIR /app
 
-# Copy go mod files
+# Copy go mod files first for better caching
 COPY go.mod go.sum ./
 
-# Download dependencies
+# Download dependencies (this layer will be cached)
 RUN go mod download
 
 # Copy source code
 COPY . .
 
-# Build the tektor binary
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o tektor main.go
+# Build the tektor binary with optimizations
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build -ldflags="-s -w" -o tektor main.go
 
 # Final stage
 FROM alpine:latest
