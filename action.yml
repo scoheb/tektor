@@ -67,4 +67,4 @@ outputs:
 
 runs:
   using: 'docker'
-  image: 'docker://quay.io/scoheb/tektor-action:latest' 
+  image: 'Dockerfile' 
