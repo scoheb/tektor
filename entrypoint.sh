@@ -187,6 +187,7 @@ find_matching_files() {
         
         for exclude_pattern in "${exclude_patterns[@]}"; do
             exclude_pattern=$(echo "$exclude_pattern" | xargs) # trim whitespace
+            # Use bash pattern matching for glob patterns
             if [[ "$file" == $exclude_pattern ]]; then
                 log_debug "Excluding file $file (matches pattern: $exclude_pattern)"
                 exclude_file=true
@@ -279,9 +280,9 @@ main() {
     
     # Debug: Show all INPUT_ environment variables
     log_info "Environment variables:"
-    env | grep "^INPUT_" | sort | while read -r var; do
+    while IFS= read -r var; do
         log_info "  $var"
-    done
+    done < <(env | grep "^INPUT_" | sort)
     
     # Check if tektor is available
     if ! command -v tektor &> /dev/null; then
