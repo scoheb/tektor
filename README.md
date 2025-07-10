@@ -35,6 +35,19 @@ Tektor can be used as a GitHub Action to automatically validate Tekton resources
 - ✅ **Comprehensive validation** using the full power of Tektor
 - 📊 **Detailed reporting** with validation results and error counts
 - 🎯 **Flexible configuration** with multiple input options
+- 🚀 **Fast execution** using pre-built container image
+
+### Container Image
+
+The GitHub Action uses a pre-built container image hosted on Quay.io:
+- **Registry**: `quay.io/scoheb/tektor-action`
+- **Tags**: `latest` (main branch), version tags (e.g., `v1.0.0`)
+- **Platforms**: linux/amd64, linux/arm64
+
+You can also run the container directly:
+```bash
+docker run --rm -v $(pwd):/workspace quay.io/scoheb/tektor-action:latest tektor validate /workspace/your-file.yaml
+```
 
 ### Quick Start
 

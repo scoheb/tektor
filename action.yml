@@ -66,32 +66,5 @@ outputs:
     description: 'Number of validation warnings found'
 
 runs:
-  using: 'composite'
-  steps:
-    - name: Setup Go
-      uses: actions/setup-go@v5
-      with:
-        go-version: '1.22'
-        
-    - name: Build tektor
-      shell: bash
-      run: |
-        cd ${{ github.action_path }}
-        go build -o tektor main.go
-        
-    - name: Run tektor validation
-      shell: bash
-      env:
-        GITHUB_TOKEN: ${{ github.token }}
-        INPUT_FILES: ${{ inputs.files }}
-        INPUT_FILE_PATTERNS: ${{ inputs.file-patterns }}
-        INPUT_EXCLUDE_PATTERNS: ${{ inputs.exclude-patterns }}
-        INPUT_FAIL_ON_ERROR: ${{ inputs.fail-on-error }}
-        INPUT_VERBOSE: ${{ inputs.verbose }}
-        INPUT_PARAMETERS: ${{ inputs.parameters }}
-        INPUT_DETECT_TEKTON_FILES: ${{ inputs.detect-tekton-files }}
-        INPUT_CHANGED_FILES_ONLY: ${{ inputs.changed-files-only }}
-        INPUT_TEKTOR_ARGS: ${{ inputs.tektor-args }}
-      run: |
-        export PATH="${{ github.action_path }}:$PATH"
-        ${{ github.action_path }}/entrypoint.sh 
+  using: 'docker'
+  image: 'quay.io/scoheb/tektor-action:latest' 

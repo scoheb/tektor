@@ -1,0 +1,30 @@
+# Git
+.git
+.gitignore
+
+# GitHub
+.github/workflows/tekton-validation.yml
+
+# Documentation
+README.md
+*.md
+
+# Test files
+testdata/
+
+# Build artifacts
+tektor
+*.exe
+
+# IDE files
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+.history/ 
