@@ -9,16 +9,16 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-# GitHub Action inputs
+# GitHub Action inputs - handle both underscore and dash formats
 INPUT_FILES=${INPUT_FILES:-""}
-INPUT_FILE_PATTERNS=${INPUT_FILE_PATTERNS:-"**/*.yaml,**/*.yml,**/*.json"}
-INPUT_EXCLUDE_PATTERNS=${INPUT_EXCLUDE_PATTERNS:-".github/**,docs/**,README.md,**/README.md"}
-INPUT_FAIL_ON_ERROR=${INPUT_FAIL_ON_ERROR:-"true"}
+INPUT_FILE_PATTERNS=${INPUT_FILE_PATTERNS:-${INPUT_FILE-PATTERNS:-"**/*.yaml,**/*.yml,**/*.json"}}
+INPUT_EXCLUDE_PATTERNS=${INPUT_EXCLUDE_PATTERNS:-${INPUT_EXCLUDE-PATTERNS:-".github/**,docs/**,README.md,**/README.md"}}
+INPUT_FAIL_ON_ERROR=${INPUT_FAIL_ON_ERROR:-${INPUT_FAIL-ON-ERROR:-"true"}}
 INPUT_VERBOSE=${INPUT_VERBOSE:-"false"}
 INPUT_PARAMETERS=${INPUT_PARAMETERS:-""}
-INPUT_DETECT_TEKTON_FILES=${INPUT_DETECT_TEKTON_FILES:-"true"}
-INPUT_CHANGED_FILES_ONLY=${INPUT_CHANGED_FILES_ONLY:-"true"}
-INPUT_TEKTOR_ARGS=${INPUT_TEKTOR_ARGS:-""}
+INPUT_DETECT_TEKTON_FILES=${INPUT_DETECT_TEKTON_FILES:-${INPUT_DETECT-TEKTON-FILES:-"true"}}
+INPUT_CHANGED_FILES_ONLY=${INPUT_CHANGED_FILES_ONLY:-${INPUT_CHANGED-FILES-ONLY:-"true"}}
+INPUT_TEKTOR_ARGS=${INPUT_TEKTOR_ARGS:-${INPUT_TEKTOR-ARGS:-""}}
 
 # Counters
 ERROR_COUNT=0
@@ -113,11 +113,23 @@ get_changed_files() {
         
         if [[ -n "$base_sha" && "$base_sha" != "null" ]]; then
             log_debug "Using base SHA from event: $base_sha"
+            log_debug "Running: git diff --name-only --diff-filter=AM $base_sha...HEAD"
             while IFS= read -r -d '' file; do
                 if [[ -f "$file" ]]; then
                     changed_files+=("$file")
                 fi
             done < <(git diff --name-only --diff-filter=AM "$base_sha"...HEAD -z 2>/dev/null || true)
+            
+            # If no files found, try a different approach
+            if [[ ${#changed_files[@]} -eq 0 ]]; then
+                log_debug "No files found with base SHA, trying alternative approach"
+                log_debug "Running: git diff --name-only --diff-filter=AM $base_sha HEAD"
+                while IFS= read -r -d '' file; do
+                    if [[ -f "$file" ]]; then
+                        changed_files+=("$file")
+                    fi
+                done < <(git diff --name-only --diff-filter=AM "$base_sha" HEAD -z 2>/dev/null || true)
+            fi
         else
             # Try to fetch the base branch and use it
             log_debug "Attempting to fetch base branch: $base_ref"
