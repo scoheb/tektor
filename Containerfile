@@ -41,22 +41,23 @@ RUN groupadd -r tektor && useradd -r -g tektor tektor
 WORKDIR /app
 
 # Copy the binary from builder stage
-COPY --from=builder /app/tektor .
+COPY --from=builder /app/tektor /usr/local/bin/tektor
 
 # Change ownership to non-root user
-RUN chown tektor:tektor /app/tektor
+RUN chown tektor:tektor /usr/local/bin/tektor
 
 # Switch to non-root user
 USER tektor
 
 # Set the binary as executable
-RUN chmod +x tektor
+RUN chmod +x /usr/local/bin/tektor
 
 # Expose any ports if needed (tektor is a CLI tool, so this might not be necessary)
 # EXPOSE 8080
 
-# Set the entrypoint
-ENTRYPOINT ["./tektor"]
+# Copy the action script
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
-# Default command
-CMD ["--help"] 
+# Set the entrypoint
+ENTRYPOINT ["/entrypoint.sh"] 

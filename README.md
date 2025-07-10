@@ -26,3 +26,309 @@ Future work:
 
 * Verify PipelineRun parameters match parameters from Pipeline definition.
 
+## GitHub Action
+
+Tektor can be used as a GitHub Action to automatically validate Tekton resources in pull requests. The action will:
+
+- 🔍 **Auto-detect** Tekton resource files (Pipeline, Task, PipelineRun)
+- 📝 **Validate only changed files** in pull requests (configurable)
+- ✅ **Comprehensive validation** using the full power of Tektor
+- 📊 **Detailed reporting** with validation results and error counts
+- 🎯 **Flexible configuration** with multiple input options
+
+### Quick Start
+
+Create `.github/workflows/tekton-validation.yml`:
+
+```yaml
+name: Validate Tekton Resources
+
+on:
+  pull_request:
+    paths:
+      - '**/*.yaml'
+      - '**/*.yml'
+
+jobs:
+  validate-tekton:
+    runs-on: ubuntu-latest
+    name: Validate Tekton Resources
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Required for changed file detection
+
+      - name: Validate Tekton Resources
+        uses: ./  # Use this action
+        with:
+          fail-on-error: true
+          verbose: false
+```
+
+### Input Parameters
+
+| Parameter | Description | Required | Default |
+|-----------|-------------|----------|---------|
+| `files` | Comma-separated list of files to validate. If not provided, will detect changed files automatically | No | `""` |
+| `file-patterns` | File patterns to match for Tekton resources | No | `**/*.yaml,**/*.yml,**/*.json` |
+| `exclude-patterns` | File patterns to exclude from validation | No | `.github/**,docs/**,README.md,**/README.md` |
+| `fail-on-error` | Whether to fail the action if validation errors are found | No | `true` |
+| `verbose` | Enable verbose logging output | No | `false` |
+| `parameters` | Runtime parameters for validation in key=value format, one per line | No | `""` |
+| `detect-tekton-files` | Auto-detect Tekton resource files by content (apiVersion: tekton.dev) | No | `true` |
+| `changed-files-only` | Only validate files that have changed in the PR | No | `true` |
+
+### Output Parameters
+
+| Parameter | Description |
+|-----------|-------------|
+| `validated-files` | List of files that were validated |
+| `validation-results` | Summary of validation results |
+| `error-count` | Number of validation errors found |
+| `warning-count` | Number of validation warnings found |
+
+### Usage Examples
+
+#### Basic Usage
+
+```yaml
+- name: Validate Tekton Resources
+  uses: your-org/tektor@v1
+```
+
+#### Validate Specific Files
+
+```yaml
+- name: Validate Specific Files
+  uses: your-org/tektor@v1
+  with:
+    files: 'pipelines/build.yaml,tasks/test.yaml'
+    verbose: true
+```
+
+#### Validate All Files (Not Just Changed)
+
+```yaml
+- name: Validate All Tekton Files
+  uses: your-org/tektor@v1
+  with:
+    changed-files-only: false
+    file-patterns: 'tekton/**/*.yaml'
+```
+
+#### With Runtime Parameters
+
+```yaml
+- name: Validate with Parameters
+  uses: your-org/tektor@v1
+  with:
+    parameters: |
+      gitUrl=https://github.com/example/repo.git
+      gitRevision=main
+      imageTag=latest
+```
+
+#### Custom File Patterns
+
+```yaml
+- name: Validate Custom Patterns
+  uses: your-org/tektor@v1
+  with:
+    file-patterns: 'ci/tekton/**/*.yml,pipelines/**/*.yaml'
+    exclude-patterns: 'ci/tekton/experimental/**,**/*-template.yaml'
+```
+
+#### Don't Fail on Errors (Warning Mode)
+
+```yaml
+- name: Validate (Warning Mode)
+  uses: your-org/tektor@v1
+  with:
+    fail-on-error: false
+```
+
+### Advanced Workflow Example
+
+```yaml
+name: Tekton Validation
+
+on:
+  pull_request:
+    paths:
+      - 'tekton/**/*.yaml'
+      - 'pipelines/**/*.yml'
+  push:
+    branches: [main]
+
+jobs:
+  validate-tekton:
+    runs-on: ubuntu-latest
+    name: Validate Tekton Resources
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate Tekton Resources
+        id: validate
+        uses: your-org/tektor@v1
+        with:
+          file-patterns: 'tekton/**/*.yaml,pipelines/**/*.yml'
+          exclude-patterns: 'tekton/experimental/**,**/*-template.yaml'
+          verbose: true
+          parameters: |
+            defaultGitUrl=https://github.com/${{ github.repository }}.git
+            defaultGitRevision=${{ github.head_ref || github.ref_name }}
+
+      - name: Comment on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            
+            const botComment = comments.find(comment => 
+              comment.user.type === 'Bot' && comment.body.includes('Tektor Validation')
+            );
+            
+            const validationResults = `${{ steps.validate.outputs.validation-results }}`;
+            const errorCount = `${{ steps.validate.outputs.error-count }}`;
+            const validatedFiles = `${{ steps.validate.outputs.validated-files }}`;
+            
+            const body = `## 🔍 Tektor Validation Results
+            
+            **Status:** ${errorCount === '0' ? '✅ Passed' : '❌ Failed'}
+            **Files validated:** ${validatedFiles.split(',').length}
+            **Errors:** ${errorCount}
+            
+            ${validatedFiles ? `
+            ### Validated Files:
+            ${validatedFiles.split(',').map(f => `- \`${f}\``).join('\n')}
+            ` : ''}
+            
+            **Details:** ${validationResults}
+            `;
+            
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: body
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: body
+              });
+            }
+```
+
+### File Detection Logic
+
+The action uses intelligent file detection:
+
+1. **Changed files only** (default for PRs): Detects files modified in the pull request
+2. **Tekton resource detection**: Automatically identifies files containing `apiVersion: tekton.dev`
+3. **Pattern matching**: Uses glob patterns to include/exclude files
+4. **Explicit file list**: Override automatic detection with specific files
+
+### Error Handling
+
+- **Validation errors**: Tektor validation failures are reported with detailed error messages
+- **File access errors**: Missing or unreadable files are logged as warnings
+- **Git detection errors**: Fallback mechanisms for changed file detection
+- **Action failures**: Configurable failure behavior with `fail-on-error` parameter
+
+### Performance Considerations
+
+- Only validates changed files by default in PRs
+- Skips non-Tekton files automatically
+- Parallel validation support (when multiple files)
+- Efficient git diff for change detection
+
+## CLI Usage
+
+### Installation
+
+```bash
+go install github.com/lcarva/tektor@latest
+```
+
+### Basic Usage
+
+```bash
+# Validate a single file
+tektor validate pipeline.yaml
+
+# Validate with runtime parameters
+tektor validate pipeline.yaml \
+  --param gitUrl=https://github.com/example/repo.git \
+  --param gitRevision=main
+
+# Enable verbose output
+tektor validate --verbose pipeline.yaml
+```
+
+### Examples
+
+```bash
+# Validate a pipeline with embedded tasks
+tektor validate /tmp/pipeline.yaml
+
+# Validate a pipeline using git resolver
+tektor validate /tmp/pipeline-with-git-tasks.yaml
+
+# Validate a pipeline run
+tektor validate /tmp/pipelinerun.yaml
+
+# Validate with runtime parameters
+tektor validate /tmp/pipeline.yaml \
+  --param taskGitUrl=https://github.com/example/repo.git \
+  --param taskGitRevision=main
+```
+
+## Development
+
+### Building
+
+```bash
+make build
+```
+
+### Testing
+
+```bash
+make test
+```
+
+### Container Build
+
+```bash
+# Fast build with golang base image
+docker build -f Containerfile.golang -t tektor:latest .
+
+# Fedora-based build
+docker build -f Containerfile -t tektor:latest .
+```
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests
+5. Submit a pull request
+
+## License
+
+This project is licensed under the Apache License 2.0 - see the LICENSE file for details.
+
