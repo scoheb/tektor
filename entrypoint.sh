@@ -27,24 +27,24 @@ VALIDATED_FILES=()
 
 # Logging functions
 log_info() {
-    echo -e "${BLUE}[INFO]${NC} $1"
+    echo -e "${BLUE}[INFO]${NC} $1" >&2
 }
 
 log_success() {
-    echo -e "${GREEN}[SUCCESS]${NC} $1"
+    echo -e "${GREEN}[SUCCESS]${NC} $1" >&2
 }
 
 log_warning() {
-    echo -e "${YELLOW}[WARNING]${NC} $1"
+    echo -e "${YELLOW}[WARNING]${NC} $1" >&2
 }
 
 log_error() {
-    echo -e "${RED}[ERROR]${NC} $1"
+    echo -e "${RED}[ERROR]${NC} $1" >&2
 }
 
 log_debug() {
     if [[ "$INPUT_VERBOSE" == "true" ]]; then
-        echo -e "${BLUE}[DEBUG]${NC} $1"
+        echo -e "${BLUE}[DEBUG]${NC} $1" >&2
     fi
 }
 
@@ -72,7 +72,7 @@ get_changed_files() {
     local changed_files=()
     
     if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
-        log_info "Detecting changed files in pull request..." >&2
+        log_info "Detecting changed files in pull request..."
         
         # First, try to get PR info from GitHub API (most reliable)
         if [[ -n "$GITHUB_TOKEN" ]]; then
@@ -80,7 +80,7 @@ get_changed_files() {
             pr_number=$(jq -r '.number' "$GITHUB_EVENT_PATH" 2>/dev/null || echo "")
             
             if [[ -n "$pr_number" && "$pr_number" != "null" ]]; then
-                log_debug "Using GitHub API to get changed files for PR #$pr_number" >&2
+                log_debug "Using GitHub API to get changed files for PR #$pr_number"
                 local api_url="https://api.github.com/repos/$GITHUB_REPOSITORY/pulls/$pr_number/files"
                 
                 while IFS= read -r file; do
@@ -89,13 +89,13 @@ get_changed_files() {
                         if [[ -f "$file" ]]; then
                             changed_files+=("$file")
                         else
-                            log_debug "File $file from API not found in checkout (possibly deleted)" >&2
+                            log_debug "File $file from API not found in checkout (possibly deleted)"
                         fi
                     fi
                 done < <(curl -s -H "Authorization: token $GITHUB_TOKEN" "$api_url" | jq -r '.[].filename' 2>/dev/null || true)
                 
                 if [[ ${#changed_files[@]} -gt 0 ]]; then
-                    log_debug "Found ${#changed_files[@]} changed files via GitHub API" >&2
+                    log_debug "Found ${#changed_files[@]} changed files via GitHub API"
                     printf '%s\n' "${changed_files[@]}"
                     return
                 fi
@@ -112,7 +112,7 @@ get_changed_files() {
         fi
         
         if [[ -n "$base_sha" && "$base_sha" != "null" ]]; then
-            log_debug "Using base SHA from event: $base_sha" >&2
+            log_debug "Using base SHA from event: $base_sha"
             while IFS= read -r -d '' file; do
                 if [[ -f "$file" ]]; then
                     changed_files+=("$file")
@@ -120,7 +120,7 @@ get_changed_files() {
             done < <(git diff --name-only --diff-filter=AM "$base_sha"...HEAD -z 2>/dev/null || true)
         else
             # Try to fetch the base branch and use it
-            log_debug "Attempting to fetch base branch: $base_ref" >&2
+            log_debug "Attempting to fetch base branch: $base_ref"
             if git fetch origin "$base_ref" >/dev/null 2>&1; then
                 while IFS= read -r -d '' file; do
                     if [[ -f "$file" ]]; then
@@ -128,16 +128,16 @@ get_changed_files() {
                     fi
                 done < <(git diff --name-only --diff-filter=AM "origin/$base_ref"...HEAD -z 2>/dev/null || true)
             else
-                log_warning "Could not fetch base branch $base_ref" >&2
+                log_warning "Could not fetch base branch $base_ref"
             fi
         fi
         
         if [[ ${#changed_files[@]} -eq 0 ]]; then
-            log_warning "No changed files detected. This might be due to checkout configuration." >&2
-            log_info "Consider using 'fetch-depth: 0' in your checkout action for better git history." >&2
+            log_warning "No changed files detected. This might be due to checkout configuration."
+            log_info "Consider using 'fetch-depth: 0' in your checkout action for better git history."
         fi
     else
-        log_info "Not a pull request event, will scan all matching files" >&2
+        log_info "Not a pull request event, will scan all matching files"
     fi
     
     printf '%s\n' "${changed_files[@]}"
