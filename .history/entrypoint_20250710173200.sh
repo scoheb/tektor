@@ -228,6 +228,19 @@ validate_file() {
         done <<< "$INPUT_PARAMETERS"
     fi
     
+    # Add PR-specific parameters
+    if [[ -n "$INPUT_PR_URL" ]]; then
+        tektor_cmd="$tektor_cmd --param \"pr-url=$INPUT_PR_URL\""
+    fi
+    
+    if [[ -n "$INPUT_PR_BRANCH" ]]; then
+        tektor_cmd="$tektor_cmd --param \"pr-branch=$INPUT_PR_BRANCH\""
+    fi
+    
+    if [[ -n "$INPUT_PR_BASE_BRANCH" ]]; then
+        tektor_cmd="$tektor_cmd --param \"pr-base-branch=$INPUT_PR_BASE_BRANCH\""
+    fi
+    
     # Add custom tektor arguments
     if [[ -n "$INPUT_TEKTOR_ARGS" ]]; then
         tektor_cmd="$tektor_cmd $INPUT_TEKTOR_ARGS"
