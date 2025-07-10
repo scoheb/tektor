@@ -1,1 +1,4 @@
 build/
+
+# History files (editor backups)
+.history/
