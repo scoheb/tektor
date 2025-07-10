@@ -18,7 +18,15 @@ INPUT_VERBOSE=${INPUT_VERBOSE:-"false"}
 INPUT_PARAMETERS=${INPUT_PARAMETERS:-""}
 INPUT_DETECT_TEKTON_FILES=${INPUT_DETECT_TEKTON_FILES:-${INPUT_DETECT-TEKTON-FILES:-"true"}}
 INPUT_CHANGED_FILES_ONLY=${INPUT_CHANGED_FILES_ONLY:-${INPUT_CHANGED-FILES-ONLY:-"true"}}
-INPUT_TEKTOR_ARGS=${INPUT_TEKTOR_ARGS:-${INPUT_TEKTOR-ARGS:-""}}
+
+# Handle tektor-args specially since it's the most problematic
+if [[ -n "${INPUT_TEKTOR-ARGS:-}" ]]; then
+    INPUT_TEKTOR_ARGS="${INPUT_TEKTOR-ARGS}"
+elif [[ -n "${INPUT_TEKTOR_ARGS:-}" ]]; then
+    INPUT_TEKTOR_ARGS="${INPUT_TEKTOR_ARGS}"
+else
+    INPUT_TEKTOR_ARGS=""
+fi
 
 # Counters
 ERROR_COUNT=0
@@ -173,21 +181,28 @@ find_matching_files() {
         done
     elif [[ "$INPUT_CHANGED_FILES_ONLY" == "true" && "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
         # Get changed files from PR
+        log_debug "Getting changed files from PR..."
         while IFS= read -r file; do
             if [[ -n "$file" ]]; then
+                log_debug "Changed file: $file"
                 files_to_check+=("$file")
             fi
         done < <(get_changed_files)
+        log_debug "Total changed files: ${#files_to_check[@]}"
     else
         # Find all files matching patterns
         log_info "Scanning all files matching patterns..."
+        log_debug "File patterns: $INPUT_FILE_PATTERNS"
         IFS=',' read -ra patterns <<< "$INPUT_FILE_PATTERNS"
         for pattern in "${patterns[@]}"; do
             pattern=$(echo "$pattern" | xargs) # trim whitespace
+            log_debug "Searching for pattern: $pattern"
             while IFS= read -r -d '' file; do
+                log_debug "Found file: $file"
                 files_to_check+=("$file")
             done < <(find . -name "$pattern" -type f -print0 2>/dev/null || true)
         done
+        log_debug "Total files found: ${#files_to_check[@]}"
     fi
     
     # Filter out excluded patterns
