@@ -181,6 +181,23 @@ find_matching_files() {
             fi
         done < <(get_changed_files)
         log_debug "Total changed files: ${#files_to_check[@]}"
+        
+        # If no changed files detected, fall back to scanning all files
+        if [[ ${#files_to_check[@]} -eq 0 ]]; then
+            log_warning "No changed files detected, falling back to scanning all matching files"
+            log_info "Scanning all files matching patterns..."
+            log_debug "File patterns: $INPUT_FILE_PATTERNS"
+            IFS=',' read -ra patterns <<< "$INPUT_FILE_PATTERNS"
+            for pattern in "${patterns[@]}"; do
+                pattern=$(echo "$pattern" | xargs) # trim whitespace
+                log_debug "Searching for pattern: $pattern"
+                while IFS= read -r -d '' file; do
+                    log_debug "Found file: $file"
+                    files_to_check+=("$file")
+                done < <(find . -name "$pattern" -type f -print0 2>/dev/null || true)
+            done
+            log_debug "Total files found: ${#files_to_check[@]}"
+        fi
     else
         # Find all files matching patterns
         log_info "Scanning all files matching patterns..."
