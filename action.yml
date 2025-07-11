@@ -67,7 +67,7 @@ outputs:
 
 runs:
   using: 'docker'
-  image: 'Dockerfile'
+  image: 'docker://quay.io/scoheb/tekton-action:latest'
   env:
     INPUT_FILES: ${{ inputs.files }}
     INPUT_FILE_PATTERNS: ${{ inputs.file-patterns }}
