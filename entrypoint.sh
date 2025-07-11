@@ -17,7 +17,7 @@ INPUT_FAIL_ON_ERROR=${INPUT_FAIL_ON_ERROR:-"true"}
 INPUT_VERBOSE=${INPUT_VERBOSE:-"false"}
 INPUT_PARAMETERS=${INPUT_PARAMETERS:-""}
 INPUT_DETECT_TEKTON_FILES=${INPUT_DETECT_TEKTON_FILES:-"true"}
-INPUT_CHANGED_FILES_ONLY=${INPUT_CHANGED_FILES_ONLY:-"true"}
+INPUT_CHANGED_FILES=${INPUT_CHANGED_FILES:-""}
 INPUT_TEKTOR_ARGS=${INPUT_TEKTOR_ARGS:-""}
 
 # Counters
@@ -67,93 +67,7 @@ is_tekton_resource() {
     return 1
 }
 
-# Function to get changed files in PR
-get_changed_files() {
-    local changed_files=()
-    
-    if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
-        log_info "Detecting changed files in pull request..."
-        
-        # First, try to get PR info from GitHub API (most reliable)
-        if [[ -n "$GITHUB_TOKEN" ]]; then
-            local pr_number
-            pr_number=$(jq -r '.number' "$GITHUB_EVENT_PATH" 2>/dev/null || echo "")
-            
-            if [[ -n "$pr_number" && "$pr_number" != "null" ]]; then
-                log_debug "Using GitHub API to get changed files for PR #$pr_number"
-                local api_url="https://api.github.com/repos/$GITHUB_REPOSITORY/pulls/$pr_number/files"
-                
-                while IFS= read -r file; do
-                    if [[ -n "$file" && "$file" != "null" ]]; then
-                        # Check if file exists in the current checkout
-                        if [[ -f "$file" ]]; then
-                            changed_files+=("$file")
-                        else
-                            log_debug "File $file from API not found in checkout (possibly deleted)"
-                        fi
-                    fi
-                done < <(curl -s -H "Authorization: token $GITHUB_TOKEN" "$api_url" | jq -r '.[].filename' 2>/dev/null || true)
-                
-                if [[ ${#changed_files[@]} -gt 0 ]]; then
-                    log_debug "Found ${#changed_files[@]} changed files via GitHub API"
-                    printf '%s\n' "${changed_files[@]}"
-                    return
-                fi
-            fi
-        fi
-        
-        # Fallback: try git diff with better branch detection
-        local base_ref="${GITHUB_BASE_REF:-main}"
-        local base_sha=""
-        
-        # Try different ways to find the base commit
-        if [[ -n "$GITHUB_EVENT_PATH" ]]; then
-            base_sha=$(jq -r '.pull_request.base.sha' "$GITHUB_EVENT_PATH" 2>/dev/null || echo "")
-        fi
-        
-        if [[ -n "$base_sha" && "$base_sha" != "null" ]]; then
-            log_debug "Using base SHA from event: $base_sha"
-            log_debug "Running: git diff --name-only --diff-filter=AM $base_sha...HEAD"
-            while IFS= read -r -d '' file; do
-                if [[ -f "$file" ]]; then
-                    changed_files+=("$file")
-                fi
-            done < <(git diff --name-only --diff-filter=AM "$base_sha"...HEAD -z 2>/dev/null || true)
-            
-            # If no files found, try a different approach
-            if [[ ${#changed_files[@]} -eq 0 ]]; then
-                log_debug "No files found with base SHA, trying alternative approach"
-                log_debug "Running: git diff --name-only --diff-filter=AM $base_sha HEAD"
-                while IFS= read -r -d '' file; do
-                    if [[ -f "$file" ]]; then
-                        changed_files+=("$file")
-                    fi
-                done < <(git diff --name-only --diff-filter=AM "$base_sha" HEAD -z 2>/dev/null || true)
-            fi
-        else
-            # Try to fetch the base branch and use it
-            log_debug "Attempting to fetch base branch: $base_ref"
-            if git fetch origin "$base_ref" >/dev/null 2>&1; then
-                while IFS= read -r -d '' file; do
-                    if [[ -f "$file" ]]; then
-                        changed_files+=("$file")
-                    fi
-                done < <(git diff --name-only --diff-filter=AM "origin/$base_ref"...HEAD -z 2>/dev/null || true)
-            else
-                log_warning "Could not fetch base branch $base_ref"
-            fi
-        fi
-        
-        if [[ ${#changed_files[@]} -eq 0 ]]; then
-            log_warning "No changed files detected. This might be due to checkout configuration."
-            log_info "Consider using 'fetch-depth: 0' in your checkout action for better git history."
-        fi
-    else
-        log_info "Not a pull request event, will scan all matching files"
-    fi
-    
-    printf '%s\n' "${changed_files[@]}"
-}
+
 
 # Function to find files matching patterns
 find_matching_files() {
@@ -171,47 +85,30 @@ find_matching_files() {
                 log_warning "Provided file does not exist: $file"
             fi
         done
-    elif [[ "$INPUT_CHANGED_FILES_ONLY" == "true" && "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
-        # Get changed files from PR
-        log_debug "Getting changed files from PR..."
+    elif [[ -n "$INPUT_CHANGED_FILES" ]]; then
+        # Use changed files provided by tj-actions/changed-files
+        log_info "Using changed files provided by tj-actions/changed-files action"
         while IFS= read -r file; do
             if [[ -n "$file" ]]; then
                 log_debug "Changed file: $file"
-                files_to_check+=("$file")
+                if [[ -f "$file" ]]; then
+                    files_to_check+=("$file")
+                else
+                    log_debug "Changed file does not exist (possibly deleted): $file"
+                fi
             fi
-        done < <(get_changed_files)
+        done <<< "$INPUT_CHANGED_FILES"
         log_debug "Total changed files: ${#files_to_check[@]}"
         
-        # If no changed files detected, fall back to scanning all files
+        # If no changed files provided, error out
         if [[ ${#files_to_check[@]} -eq 0 ]]; then
-            log_warning "No changed files detected, falling back to scanning all matching files"
-            log_info "Scanning all files matching patterns..."
-            log_debug "File patterns: $INPUT_FILE_PATTERNS"
-            IFS=',' read -ra patterns <<< "$INPUT_FILE_PATTERNS"
-            for pattern in "${patterns[@]}"; do
-                pattern=$(echo "$pattern" | xargs) # trim whitespace
-                log_debug "Searching for pattern: $pattern"
-                while IFS= read -r -d '' file; do
-                    log_debug "Found file: $file"
-                    files_to_check+=("$file")
-                done < <(find . -name "$pattern" -type f -print0 2>/dev/null || true)
-            done
-            log_debug "Total files found: ${#files_to_check[@]}"
+            log_error "No changed files provided. Please ensure tj-actions/changed-files is configured correctly."
+            exit 1
         fi
     else
-        # Find all files matching patterns
-        log_info "Scanning all files matching patterns..."
-        log_debug "File patterns: $INPUT_FILE_PATTERNS"
-        IFS=',' read -ra patterns <<< "$INPUT_FILE_PATTERNS"
-        for pattern in "${patterns[@]}"; do
-            pattern=$(echo "$pattern" | xargs) # trim whitespace
-            log_debug "Searching for pattern: $pattern"
-            while IFS= read -r -d '' file; do
-                log_debug "Found file: $file"
-                files_to_check+=("$file")
-            done < <(find . -name "$pattern" -type f -print0 2>/dev/null || true)
-        done
-        log_debug "Total files found: ${#files_to_check[@]}"
+        log_error "No files specified. Please provide either 'files' or 'changed-files' input."
+        log_error "Use tj-actions/changed-files to provide the changed-files input."
+        exit 1
     fi
     
     # Filter out excluded patterns

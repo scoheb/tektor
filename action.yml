@@ -42,10 +42,10 @@ inputs:
     required: false
     default: 'true'
 
-  changed-files-only:
-    description: 'Only validate files that have changed in the PR (requires pull_request event)'
-    required: false
-    default: 'true'
+  changed-files:
+    description: 'Newline-separated list of changed files to validate (required, use tj-actions/changed-files to provide this)'
+    required: true
+    default: ''
   
   tektor-args:
     description: 'Additional arguments to pass to tektor command (e.g., "--param key=value --verbose")'
@@ -76,5 +76,5 @@ runs:
     INPUT_VERBOSE: ${{ inputs.verbose }}
     INPUT_PARAMETERS: ${{ inputs.parameters }}
     INPUT_DETECT_TEKTON_FILES: ${{ inputs.detect-tekton-files }}
-    INPUT_CHANGED_FILES_ONLY: ${{ inputs.changed-files-only }}
+    INPUT_CHANGED_FILES: ${{ inputs.changed-files }}
     INPUT_TEKTOR_ARGS: ${{ inputs.tektor-args }} 

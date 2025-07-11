@@ -71,12 +71,19 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Get changed files
+        uses: tj-actions/changed-files@ed68ef82c095e0d48ec87eccea555d944a631a4c  # v45.0.6
+        id: changed-files
         with:
-          fetch-depth: 0  # Required for changed file detection
+          files: |
+            **/*.yaml
+            **/*.yml
 
       - name: Validate Tekton Resources
         uses: ./  # Use this action
         with:
+          changed-files: ${{ steps.changed-files.outputs.all_changed_files }}
           fail-on-error: true
           verbose: false
 ```
@@ -85,14 +92,14 @@ jobs:
 
 | Parameter | Description | Required | Default |
 |-----------|-------------|----------|---------|
-| `files` | Comma-separated list of files to validate. If not provided, will detect changed files automatically | No | `""` |
-| `file-patterns` | File patterns to match for Tekton resources | No | `**/*.yaml,**/*.yml,**/*.json` |
+| `files` | Comma-separated list of files to validate. If not provided, changed-files must be provided | No | `""` |
+| `file-patterns` | File patterns to match for Tekton resources (only used for exclusion filtering) | No | `**/*.yaml,**/*.yml,**/*.json` |
 | `exclude-patterns` | File patterns to exclude from validation | No | `.github/**,docs/**,README.md,**/README.md` |
 | `fail-on-error` | Whether to fail the action if validation errors are found | No | `true` |
 | `verbose` | Enable verbose logging output | No | `false` |
 | `parameters` | Runtime parameters for validation in key=value format, one per line | No | `""` |
 | `detect-tekton-files` | Auto-detect Tekton resource files by content (apiVersion: tekton.dev) | No | `true` |
-| `changed-files-only` | Only validate files that have changed in the PR | No | `true` |
+| `changed-files` | Newline-separated list of changed files to validate (required, use tj-actions/changed-files) | Yes | `""` |
 | `tektor-args` | Additional arguments to pass to tektor command | No | `""` |
 
 ### Output Parameters
@@ -109,8 +116,18 @@ jobs:
 #### Basic Usage
 
 ```yaml
+- name: Get changed files
+  uses: tj-actions/changed-files@ed68ef82c095e0d48ec87eccea555d944a631a4c  # v45.0.6
+  id: changed-files
+  with:
+    files: |
+      **/*.yaml
+      **/*.yml
+
 - name: Validate Tekton Resources
   uses: your-org/tektor@v1
+  with:
+    changed-files: ${{ steps.changed-files.outputs.all_changed_files }}
 ```
 
 #### Validate Specific Files
@@ -123,14 +140,24 @@ jobs:
     verbose: true
 ```
 
-#### Validate All Files (Not Just Changed)
+#### Validate All Files in Directory
 
 ```yaml
+- name: Get all Tekton files
+  uses: tj-actions/changed-files@ed68ef82c095e0d48ec87eccea555d944a631a4c  # v45.0.6
+  id: all-files
+  with:
+    files: |
+      tekton/**/*.yaml
+      tekton/**/*.yml
+    files_ignore: |
+      tekton/experimental/**
+    include_all_files: true
+
 - name: Validate All Tekton Files
   uses: your-org/tektor@v1
   with:
-    changed-files-only: false
-    file-patterns: 'tekton/**/*.yaml'
+    changed-files: ${{ steps.all-files.outputs.all_changed_files }}
 ```
 
 #### With Runtime Parameters
@@ -217,19 +244,38 @@ This generates: `tektor validate --verbose --param "gitUrl=..." --param taskGitR
 #### Custom File Patterns
 
 ```yaml
+- name: Get custom pattern files
+  uses: tj-actions/changed-files@ed68ef82c095e0d48ec87eccea555d944a631a4c  # v45.0.6
+  id: custom-files
+  with:
+    files: |
+      ci/tekton/**/*.yml
+      pipelines/**/*.yaml
+    files_ignore: |
+      ci/tekton/experimental/**
+      **/*-template.yaml
+
 - name: Validate Custom Patterns
   uses: your-org/tektor@v1
   with:
-    file-patterns: 'ci/tekton/**/*.yml,pipelines/**/*.yaml'
-    exclude-patterns: 'ci/tekton/experimental/**,**/*-template.yaml'
+    changed-files: ${{ steps.custom-files.outputs.all_changed_files }}
 ```
 
 #### Don't Fail on Errors (Warning Mode)
 
 ```yaml
+- name: Get changed files
+  uses: tj-actions/changed-files@ed68ef82c095e0d48ec87eccea555d944a631a4c  # v45.0.6
+  id: changed-files
+  with:
+    files: |
+      **/*.yaml
+      **/*.yml
+
 - name: Validate (Warning Mode)
   uses: your-org/tektor@v1
   with:
+    changed-files: ${{ steps.changed-files.outputs.all_changed_files }}
     fail-on-error: false
 ```
 
@@ -253,15 +299,23 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Get changed files
+        uses: tj-actions/changed-files@ed68ef82c095e0d48ec87eccea555d944a631a4c  # v45.0.6
+        id: changed-files
         with:
-          fetch-depth: 0
+          files: |
+            tekton/**/*.yaml
+            pipelines/**/*.yml
+          files_ignore: |
+            tekton/experimental/**
+            **/*-template.yaml
 
       - name: Validate Tekton Resources
         id: validate
         uses: your-org/tektor@v1
         with:
-          file-patterns: 'tekton/**/*.yaml,pipelines/**/*.yml'
-          exclude-patterns: 'tekton/experimental/**,**/*-template.yaml'
+          changed-files: ${{ steps.changed-files.outputs.all_changed_files }}
           verbose: true
           parameters: |
             defaultGitUrl=https://github.com/${{ github.repository }}.git
@@ -319,12 +373,14 @@ jobs:
 
 ### File Detection Logic
 
-The action uses intelligent file detection:
+The action processes files in the following order:
 
-1. **Changed files only** (default for PRs): Detects files modified in the pull request
-2. **Tekton resource detection**: Automatically identifies files containing `apiVersion: tekton.dev`
-3. **Pattern matching**: Uses glob patterns to include/exclude files
-4. **Explicit file list**: Override automatic detection with specific files
+1. **Explicit file list**: When `files` input is provided, only those files are validated
+2. **Changed files**: When `changed-files` input is provided (from tj-actions/changed-files), those files are validated
+3. **Tekton resource detection**: Automatically identifies files containing `apiVersion: tekton.dev`
+4. **Pattern filtering**: Uses exclude patterns to filter out unwanted files
+
+**Note:** Either `files` or `changed-files` input must be provided. The action requires tj-actions/changed-files to detect which files to validate.
 
 ### Error Handling
 
@@ -335,10 +391,10 @@ The action uses intelligent file detection:
 
 ### Performance Considerations
 
-- Only validates changed files by default in PRs
+- Only validates files provided by tj-actions/changed-files (efficient for PRs)
 - Skips non-Tekton files automatically
 - Parallel validation support (when multiple files)
-- Efficient git diff for change detection
+- Leverages tj-actions/changed-files for efficient file detection
 
 ## CLI Usage
 

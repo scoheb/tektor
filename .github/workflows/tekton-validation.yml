@@ -21,15 +21,23 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Required for changed file detection
           token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Get changed files
+        uses: tj-actions/changed-files@ed68ef82c095e0d48ec87eccea555d944a631a4c  # v45.0.6
+        id: changed-files
+        with:
+          files: |
+            testdata/**/*.yaml
+            example-*.yaml
+          files_ignore: |
+            testdata/README.md
 
       - name: Validate Tekton Resources
         id: validate
         uses: ./  # Use this action (for testing the action itself)
         with:
-          file-patterns: 'testdata/**/*.yaml,example-*.yaml'
-          exclude-patterns: 'testdata/README.md'
+          changed-files: ${{ steps.changed-files.outputs.all_changed_files }}
           verbose: true
           fail-on-error: true
           tektor-args: '--param taskGitRevision=${{ github.event.pull_request.head.ref || github.ref_name }}'
