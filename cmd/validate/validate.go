@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 	v1 "github.com/tektoncd/pipeline/pkg/apis/pipeline/v1"
@@ -15,17 +16,41 @@ import (
 	"github.com/lcarva/tektor/internal/validator"
 )
 
+var (
+	runtimeParams []string
+)
+
 var ValidateCmd = &cobra.Command{
 	Use:     "validate",
 	Short:   "Validate a Tekton resource",
-	Example: "tekton validate /tmp/pipeline.yaml",
+	Example: "tektor validate /tmp/pipeline.yaml --param taskGitUrl=https://github.com/example/repo",
 	Args:    cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return run(cmd.Context(), args[0])
+		params, err := parseRuntimeParams(runtimeParams)
+		if err != nil {
+			return fmt.Errorf("parsing runtime parameters: %w", err)
+		}
+		return run(cmd.Context(), args[0], params)
 	},
 }
 
-func run(ctx context.Context, fname string) error {
+func init() {
+	ValidateCmd.Flags().StringArrayVar(&runtimeParams, "param", []string{}, "Runtime parameters in format key=value (can be specified multiple times)")
+}
+
+func parseRuntimeParams(params []string) (map[string]string, error) {
+	result := make(map[string]string)
+	for _, param := range params {
+		parts := strings.SplitN(param, "=", 2)
+		if len(parts) != 2 {
+			return nil, fmt.Errorf("invalid parameter format: %s (expected key=value)", param)
+		}
+		result[parts[0]] = parts[1]
+	}
+	return result, nil
+}
+
+func run(ctx context.Context, fname string, runtimeParams map[string]string) error {
 	fmt.Printf("Validating %s\n", fname)
 	f, err := os.ReadFile(fname)
 	if err != nil {
@@ -44,7 +69,7 @@ func run(ctx context.Context, fname string) error {
 		if err := yaml.Unmarshal(f, &p); err != nil {
 			return fmt.Errorf("unmarshalling %s as %s: %w", fname, key, err)
 		}
-		if err := validator.ValidatePipeline(ctx, p); err != nil {
+		if err := validator.ValidatePipeline(ctx, p, runtimeParams); err != nil {
 			return err
 		}
 	case "tekton.dev/v1/PipelineRun":
@@ -58,7 +83,7 @@ func run(ctx context.Context, fname string) error {
 			return fmt.Errorf("unmarshalling %s as %s: %w", fname, key, err)
 		}
 
-		if err := validator.ValidatePipelineRun(ctx, pr); err != nil {
+		if err := validator.ValidatePipelineRun(ctx, pr, runtimeParams); err != nil {
 			return err
 		}
 	case "tekton.dev/v1/Task":

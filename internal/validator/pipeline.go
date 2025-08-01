@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/google/go-containerregistry/pkg/authn"
@@ -14,7 +15,39 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
-func ValidatePipeline(ctx context.Context, p v1.Pipeline) error {
+// resolveParameterExpressions resolves Tekton parameter expressions like $(params.paramName) with runtime values
+func resolveParameterExpressions(input string, runtimeParams map[string]string) string {
+	// Match $(params.paramName) pattern
+	re := regexp.MustCompile(`\$\(params\.([^)]+)\)`)
+	return re.ReplaceAllStringFunc(input, func(match string) string {
+		// Extract parameter name from the match
+		paramName := re.FindStringSubmatch(match)[1]
+		if value, exists := runtimeParams[paramName]; exists {
+			return value
+		}
+		// If no runtime value provided, return the original expression
+		return match
+	})
+}
+
+// resolveParamsInTaskRefParams resolves parameter expressions in TaskRef.Params
+func resolveParamsInTaskRefParams(params v1.Params, runtimeParams map[string]string) v1.Params {
+	if len(runtimeParams) == 0 {
+		return params
+	}
+
+	resolvedParams := make(v1.Params, len(params))
+	for i, param := range params {
+		resolvedParam := param.DeepCopy()
+		if resolvedParam.Value.StringVal != "" {
+			resolvedParam.Value.StringVal = resolveParameterExpressions(resolvedParam.Value.StringVal, runtimeParams)
+		}
+		resolvedParams[i] = *resolvedParam
+	}
+	return resolvedParams
+}
+
+func ValidatePipeline(ctx context.Context, p v1.Pipeline, runtimeParams map[string]string) error {
 
 	if err := p.Validate(ctx); err != nil {
 		var allErrors error
@@ -46,7 +79,7 @@ func ValidatePipeline(ctx context.Context, p v1.Pipeline) error {
 		allTaskResultRefs[pipelineTask.Name] = v1.PipelineTaskResultRefs(&pipelineTask)
 		params := pipelineTask.Params
 
-		taskSpec, err := taskSpecFromPipelineTask(ctx, pipelineTask)
+		taskSpec, err := taskSpecFromPipelineTask(ctx, pipelineTask, runtimeParams)
 		if err != nil {
 			return fmt.Errorf("retrieving task spec from %s pipeline task: %w", pipelineTask.Name, err)
 		}
@@ -78,7 +111,7 @@ func ValidatePipeline(ctx context.Context, p v1.Pipeline) error {
 	return nil
 }
 
-func taskSpecFromPipelineTask(ctx context.Context, pipelineTask v1.PipelineTask) (*v1.TaskSpec, error) {
+func taskSpecFromPipelineTask(ctx context.Context, pipelineTask v1.PipelineTask, runtimeParams map[string]string) (*v1.TaskSpec, error) {
 	// Embedded task spec
 	if pipelineTask.TaskSpec != nil {
 		// Custom Tasks are not supported
@@ -89,7 +122,8 @@ func taskSpecFromPipelineTask(ctx context.Context, pipelineTask v1.PipelineTask)
 	}
 
 	if pipelineTask.TaskRef != nil && pipelineTask.TaskRef.Resolver == "bundles" {
-		opts, err := bundleResolverOptions(ctx, pipelineTask.TaskRef.Params)
+		resolvedParams := resolveParamsInTaskRefParams(pipelineTask.TaskRef.Params, runtimeParams)
+		opts, err := bundleResolverOptions(ctx, resolvedParams)
 		if err != nil {
 			return nil, err
 		}
@@ -107,7 +141,8 @@ func taskSpecFromPipelineTask(ctx context.Context, pipelineTask v1.PipelineTask)
 	}
 
 	if pipelineTask.TaskRef != nil && pipelineTask.TaskRef.Resolver == "git" {
-		params, err := git.PopulateDefaultParams(ctx, pipelineTask.TaskRef.Params)
+		resolvedParams := resolveParamsInTaskRefParams(pipelineTask.TaskRef.Params, runtimeParams)
+		params, err := git.PopulateDefaultParams(ctx, resolvedParams)
 		if err != nil {
 			return nil, err
 		}
