@@ -19,6 +19,7 @@ import (
 	"github.com/openshift-pipelines/pipelines-as-code/pkg/resolve"
 	"github.com/openshift-pipelines/pipelines-as-code/pkg/templates"
 	v1 "github.com/tektoncd/pipeline/pkg/apis/pipeline/v1"
+	"github.com/tektoncd/pipeline/pkg/substitution"
 	"go.uber.org/zap"
 	"sigs.k8s.io/yaml"
 )
@@ -31,14 +32,15 @@ The implementation in github.com/openshift-pipelines/pipelines-as-code is not do
 manner. As such, the majority of the code here was copied and pasted from that repo.
 */
 
-func ResolvePipelineRun(ctx context.Context, fname string, prName string) ([]byte, error) {
+// setupResolveContext handles the common setup for both pipeline and pipeline run resolution
+func setupResolveContext(ctx context.Context, fname string, runtimeParams map[string]string) (*params.Run, map[string]string, string, error) {
 	run := params.New()
 	errc := run.Clients.NewClients(ctx, &run.Info)
 	zaplog, err := zap.NewProduction(
 		zap.IncreaseLevel(zap.FatalLevel),
 	)
 	if err != nil {
-		return nil, err
+		return nil, nil, "", err
 	}
 	run.Clients.Log = zaplog.Sugar()
 
@@ -46,7 +48,7 @@ func ResolvePipelineRun(ctx context.Context, fname string, prName string) ([]byt
 		// Allow resolve to be run without a kubeconfig
 		noConfigErr := strings.Contains(errc.Error(), "Couldn't get kubeConfiguration namespace")
 		if !noConfigErr {
-			return nil, errc
+			return nil, nil, "", errc
 		}
 	} else {
 		// It's OK  if pac is not installed, ignore the error
@@ -55,9 +57,10 @@ func ResolvePipelineRun(ctx context.Context, fname string, prName string) ([]byt
 
 	pacConfig := map[string]string{}
 	if err := settings.ConfigToSettings(run.Clients.Log, run.Info.Pac.Settings, pacConfig); err != nil {
-		return nil, err
+		return nil, nil, "", err
 	}
 
+	// Start with git-derived parameters
 	params := map[string]string{}
 
 	gitinfo := git.GetGitInfo(path.Dir(fname))
@@ -68,31 +71,47 @@ func ResolvePipelineRun(ctx context.Context, fname string, prName string) ([]byt
 		params["repo_url"] = gitinfo.URL
 		repoOwner, err := formatting.GetRepoOwnerFromURL(gitinfo.URL)
 		if err != nil {
-			return nil, fmt.Errorf("getting git repo owner: %w", err)
+			return nil, nil, "", fmt.Errorf("getting git repo owner: %w", err)
 		}
 		params["repo_owner"] = strings.Split(repoOwner, "/")[0]
 		params["repo_name"] = strings.Split(repoOwner, "/")[1]
 	}
 
-	pacDir := path.Join(gitinfo.TopLevelPath, ".tekton")
-	allTemplates := templates.ReplacePlaceHoldersVariables(enumerateFiles([]string{pacDir}), params)
+	// Add runtime parameters, which will override git-derived ones if there are conflicts
+	for key, value := range runtimeParams {
+		params[key] = value
+	}
 
-	// We use github here but since we don't do remotetask we would not care
-	providerintf := github.New()
-	event := info.NewEvent()
+	pacDir := path.Join(gitinfo.TopLevelPath, ".tekton")
+
 	// Must change working dir to git repo so local fs resolver works
 	if gitinfo.TopLevelPath != "" {
 		wd, err := os.Getwd()
 		if err != nil {
-			return nil, fmt.Errorf("getting current working directory: %w", err)
+			return nil, nil, "", fmt.Errorf("getting current working directory: %w", err)
 		}
 		if err := os.Chdir(gitinfo.TopLevelPath); err != nil {
-			return nil, fmt.Errorf("changing working directory: %w", err)
+			return nil, nil, "", fmt.Errorf("changing working directory: %w", err)
 		}
 		defer func(wd string) {
 			_ = os.Chdir(wd)
 		}(wd)
 	}
+
+	return run, params, pacDir, nil
+}
+
+func ResolvePipelineRun(ctx context.Context, fname string, prName string, runtimeParams map[string]string) ([]byte, error) {
+	run, params, pacDir, err := setupResolveContext(ctx, fname, runtimeParams)
+	if err != nil {
+		return nil, err
+	}
+
+	allTemplates := templates.ReplacePlaceHoldersVariables(enumerateFiles([]string{pacDir}), params)
+
+	// We use github here but since we don't do remotetask we would not care
+	providerintf := github.New()
+	event := info.NewEvent()
 
 	ropt := &resolve.Opts{RemoteTasks: true}
 	prs, err := resolve.Resolve(ctx, run, run.Clients.Log, providerintf, event, allTemplates, ropt)
@@ -110,6 +129,9 @@ func ResolvePipelineRun(ctx context.Context, fname string, prName string) ([]byt
 		return nil, fmt.Errorf("unable to find %q pipelinerun after pac resolution", prName)
 	}
 
+	// Apply additional parameter substitutions to the PipelineRun structure
+	applyParameterSubstitutionsToPipelineRun(pr, params)
+
 	pr.APIVersion = v1.SchemeGroupVersion.String()
 	pr.Kind = "PipelineRun"
 	d, err := yaml.Marshal(pr)
@@ -118,6 +140,176 @@ func ResolvePipelineRun(ctx context.Context, fname string, prName string) ([]byt
 	}
 
 	return cleanRe.ReplaceAll(d, []byte("\n")), nil
+}
+
+func ResolvePipeline(ctx context.Context, fname string, pipelineName string, runtimeParams map[string]string) ([]byte, error) {
+	_, params, pacDir, err := setupResolveContext(ctx, fname, runtimeParams)
+	if err != nil {
+		return nil, err
+	}
+
+	// Include both the .tekton directory and the actual pipeline file being validated
+	var templatePaths []string
+	if pacDir != "" {
+		templatePaths = append(templatePaths, pacDir)
+	}
+	templatePaths = append(templatePaths, fname)
+
+	allTemplates := templates.ReplacePlaceHoldersVariables(enumerateFiles(templatePaths), params)
+
+	// Parse the templates to find Pipeline objects
+	var pipeline *v1.Pipeline
+	documents := strings.Split(allTemplates, "---")
+	for _, doc := range documents {
+		doc = strings.TrimSpace(doc)
+		if doc == "" {
+			continue
+		}
+
+		// Try to unmarshal as Pipeline
+		var p v1.Pipeline
+		if err := yaml.Unmarshal([]byte(doc), &p); err == nil {
+			if p.Kind == "Pipeline" && p.Name == pipelineName {
+				pipeline = &p
+				break
+			}
+		}
+	}
+
+	if pipeline == nil {
+		return nil, fmt.Errorf("unable to find %q pipeline in templates", pipelineName)
+	}
+
+	// Apply additional parameter substitutions to the pipeline structure
+	// This handles cases where PaC template substitution didn't catch all parameter references
+	applyParameterSubstitutionsToPipeline(pipeline, params)
+
+	pipeline.APIVersion = v1.SchemeGroupVersion.String()
+	pipeline.Kind = "Pipeline"
+	d, err := yaml.Marshal(pipeline)
+	if err != nil {
+		return nil, fmt.Errorf("marshaling pac resolved pipeline: %w", err)
+	}
+
+	return cleanRe.ReplaceAll(d, []byte("\n")), nil
+}
+
+// applyParameterSubstitutionsToPipeline applies parameter substitutions to all string fields in the pipeline
+func applyParameterSubstitutionsToPipeline(pipeline *v1.Pipeline, params map[string]string) {
+	// Convert params to the format expected by ApplyReplacements
+	replacements := make(map[string]string)
+	for key, value := range params {
+		replacements["params."+key] = value
+	}
+
+	// Apply substitutions to pipeline tasks
+	for i := range pipeline.Spec.Tasks {
+		task := &pipeline.Spec.Tasks[i]
+
+		// Apply substitutions to task parameters
+		for j := range task.Params {
+			param := &task.Params[j]
+			if param.Value.StringVal != "" {
+				param.Value.StringVal = substitution.ApplyReplacements(param.Value.StringVal, replacements)
+			}
+		}
+
+		// Apply substitutions to TaskRef parameters
+		if task.TaskRef != nil && task.TaskRef.Params != nil {
+			for j := range task.TaskRef.Params {
+				param := &task.TaskRef.Params[j]
+				if param.Value.StringVal != "" {
+					param.Value.StringVal = substitution.ApplyReplacements(param.Value.StringVal, replacements)
+				}
+			}
+		}
+	}
+
+	// Apply substitutions to finally tasks
+	for i := range pipeline.Spec.Finally {
+		task := &pipeline.Spec.Finally[i]
+
+		// Apply substitutions to task parameters
+		for j := range task.Params {
+			param := &task.Params[j]
+			if param.Value.StringVal != "" {
+				param.Value.StringVal = substitution.ApplyReplacements(param.Value.StringVal, replacements)
+			}
+		}
+
+		// Apply substitutions to TaskRef parameters
+		if task.TaskRef != nil && task.TaskRef.Params != nil {
+			for j := range task.TaskRef.Params {
+				param := &task.TaskRef.Params[j]
+				if param.Value.StringVal != "" {
+					param.Value.StringVal = substitution.ApplyReplacements(param.Value.StringVal, replacements)
+				}
+			}
+		}
+	}
+}
+
+// applyParameterSubstitutionsToPipelineRun applies parameter substitutions to all string fields in the PipelineRun
+func applyParameterSubstitutionsToPipelineRun(pr *v1.PipelineRun, params map[string]string) {
+       // Convert params to the format expected by ApplyReplacements
+       replacements := make(map[string]string)
+       for key, value := range params {
+               replacements["params."+key] = value
+       }
+
+       // Apply substitutions to PipelineRun parameters
+       for i := range pr.Spec.Params {
+               param := &pr.Spec.Params[i]
+               if param.Value.StringVal != "" {
+                       param.Value.StringVal = substitution.ApplyReplacements(param.Value.StringVal, replacements)
+               }
+       }
+
+       // Apply substitutions to pipeline tasks
+       for i := range pr.Spec.PipelineSpec.Tasks {
+               task := &pr.Spec.PipelineSpec.Tasks[i]
+
+               // Apply substitutions to task parameters
+               for j := range task.Params {
+                       param := &task.Params[j]
+                       if param.Value.StringVal != "" {
+                               param.Value.StringVal = substitution.ApplyReplacements(param.Value.StringVal, replacements)
+                       }
+               }
+
+               // Apply substitutions to TaskRef parameters
+               if task.TaskRef != nil && task.TaskRef.Params != nil {
+                       for j := range task.TaskRef.Params {
+                               param := &task.TaskRef.Params[j]
+                               if param.Value.StringVal != "" {
+                                       param.Value.StringVal = substitution.ApplyReplacements(param.Value.StringVal, replacements)
+                               }
+                       }
+               }
+       }
+
+       // Apply substitutions to finally tasks
+       for i := range pr.Spec.PipelineSpec.Finally {
+               task := &pr.Spec.PipelineSpec.Finally[i]
+
+               // Apply substitutions to task parameters
+               for j := range task.Params {
+                       param := &task.Params[j]
+                       if param.Value.StringVal != "" {
+                               param.Value.StringVal = substitution.ApplyReplacements(param.Value.StringVal, replacements)
+                       }
+               }
+
+               // Apply substitutions to TaskRef parameters
+               if task.TaskRef != nil && task.TaskRef.Params != nil {
+                       for j := range task.TaskRef.Params {
+                               param := &task.TaskRef.Params[j]
+                               if param.Value.StringVal != "" {
+                                       param.Value.StringVal = substitution.ApplyReplacements(param.Value.StringVal, replacements)
+                               }
+                       }
+               }
+       }
 }
 
 // cleanedup regexp do as much as we can but really it's a lost game to try this

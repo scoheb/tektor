@@ -9,55 +9,6 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
-func TestResolveParameterExpressions(t *testing.T) {
-	tests := []struct {
-		name           string
-		input          string
-		runtimeParams  map[string]string
-		expectedOutput string
-	}{
-		{
-			name:           "resolve single parameter",
-			input:          "$(params.taskGitUrl)",
-			runtimeParams:  map[string]string{"taskGitUrl": "https://github.com/example/repo"},
-			expectedOutput: "https://github.com/example/repo",
-		},
-		{
-			name:           "resolve parameter in URL",
-			input:          "https://github.com/$(params.org)/$(params.repo)",
-			runtimeParams:  map[string]string{"org": "tektoncd", "repo": "catalog"},
-			expectedOutput: "https://github.com/tektoncd/catalog",
-		},
-		{
-			name:           "no parameter to resolve",
-			input:          "https://github.com/tektoncd/catalog",
-			runtimeParams:  map[string]string{"taskGitUrl": "https://github.com/example/repo"},
-			expectedOutput: "https://github.com/tektoncd/catalog",
-		},
-		{
-			name:           "parameter not provided - should remain unchanged",
-			input:          "$(params.taskGitUrl)",
-			runtimeParams:  map[string]string{},
-			expectedOutput: "$(params.taskGitUrl)",
-		},
-		{
-			name:           "mixed resolved and unresolved parameters",
-			input:          "$(params.taskGitUrl)/$(params.unresolvedParam)",
-			runtimeParams:  map[string]string{"taskGitUrl": "https://github.com/example/repo"},
-			expectedOutput: "https://github.com/example/repo/$(params.unresolvedParam)",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := resolveParameterExpressions(tt.input, tt.runtimeParams)
-			if result != tt.expectedOutput {
-				t.Errorf("resolveParameterExpressions() = %q, want %q", result, tt.expectedOutput)
-			}
-		})
-	}
-}
-
 func TestResolveParamsInTaskRefParams(t *testing.T) {
 	tests := []struct {
 		name          string
@@ -147,7 +98,7 @@ func TestResolveParamsInTaskRefParams(t *testing.T) {
 	}
 }
 
-func TestPipelineValidationWithRuntimeParams(t *testing.T) {
+func TestPipelineValidationWithResolvedPipeline(t *testing.T) {
 	pipelineYAML := `
 apiVersion: tekton.dev/v1
 kind: Pipeline
@@ -168,73 +119,32 @@ spec:
         resolver: git
         params:
           - name: url
-            value: $(params.gitUrl)
+            value: https://github.com/tektoncd/catalog
           - name: revision
-            value: $(params.gitRevision)
+            value: main
           - name: pathInRepo
             value: task.yaml
       params:
         - name: test-param
           value: "test-value"`
 
-	tests := []struct {
-		name            string
-		runtimeParams   map[string]string
-		expectError     bool
-		errorContains   string
-		errorNotContain string
-	}{
-		{
-			name: "with runtime parameters provided",
-			runtimeParams: map[string]string{
-				"gitUrl":      "https://github.com/tektoncd/catalog",
-				"gitRevision": "main",
-			},
-			expectError:     true,                         // Will still error due to git resolution, but parameters are resolved
-			errorNotContain: "invalid git repository url", // Key test: parameters should be resolved
-		},
-		{
-			name:          "without runtime parameters",
-			runtimeParams: map[string]string{},
-			expectError:   true,
-			errorContains: "invalid git repository url: $(params.gitUrl)", // Original error
-		},
-		{
-			name: "partial runtime parameters",
-			runtimeParams: map[string]string{
-				"gitUrl": "https://github.com/tektoncd/catalog",
-				// gitRevision not provided, but has default
-			},
-			expectError:     true,
-			errorNotContain: "invalid git repository url", // Parameters should be resolved
-		},
-	}
+	t.Run("validate resolved pipeline", func(t *testing.T) {
+		var pipeline v1.Pipeline
+		if err := yaml.Unmarshal([]byte(pipelineYAML), &pipeline); err != nil {
+			t.Fatalf("failed to unmarshal pipeline YAML: %v", err)
+		}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			var pipeline v1.Pipeline
-			if err := yaml.Unmarshal([]byte(pipelineYAML), &pipeline); err != nil {
-				t.Fatalf("failed to unmarshal pipeline YAML: %v", err)
+		err := ValidatePipeline(context.Background(), pipeline)
+
+		// The pipeline should validate successfully since it's already resolved
+		// (parameters are already substituted with actual values)
+		// Note: The git resolver will fail to find the task file, but that's expected
+		// since this is a test with mock data
+		if err != nil {
+			// Check if the error is about the git resolver not finding the task file
+			if !strings.Contains(err.Error(), "error opening file") && !strings.Contains(err.Error(), "file does not exist") {
+				t.Errorf("expected git resolver error but got: %v", err)
 			}
-
-			err := ValidatePipeline(context.Background(), pipeline, tt.runtimeParams)
-
-			if tt.expectError {
-				if err == nil {
-					t.Errorf("expected error but got none")
-					return
-				}
-				if tt.errorContains != "" && !strings.Contains(err.Error(), tt.errorContains) {
-					t.Errorf("expected error to contain %q, but got: %v", tt.errorContains, err)
-				}
-				if tt.errorNotContain != "" && strings.Contains(err.Error(), tt.errorNotContain) {
-					t.Errorf("expected error NOT to contain %q, but got: %v", tt.errorNotContain, err)
-				}
-			} else {
-				if err != nil {
-					t.Errorf("expected no error but got: %v", err)
-				}
-			}
-		})
-	}
+		}
+	})
 }

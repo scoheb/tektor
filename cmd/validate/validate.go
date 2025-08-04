@@ -65,15 +65,21 @@ func run(ctx context.Context, fname string, runtimeParams map[string]string) err
 	key := fmt.Sprintf("%s/%s", o.APIVersion, o.Kind)
 	switch key {
 	case "tekton.dev/v1/Pipeline":
-		var p v1.Pipeline
-		if err := yaml.Unmarshal(f, &p); err != nil {
-			return fmt.Errorf("unmarshalling %s as %s: %w", fname, key, err)
+		// Resolve the pipeline using PaC to handle parameter substitutions and inlined tasks
+		resolvedPipelineBytes, err := pac.ResolvePipeline(ctx, fname, o.Name, runtimeParams)
+		if err != nil {
+			return fmt.Errorf("resolving pipeline with PAC: %w", err)
 		}
-		if err := validator.ValidatePipeline(ctx, p, runtimeParams); err != nil {
+
+		var p v1.Pipeline
+		if err := yaml.Unmarshal(resolvedPipelineBytes, &p); err != nil {
+			return fmt.Errorf("unmarshalling resolved pipeline as %s: %w", key, err)
+		}
+		if err := validator.ValidatePipeline(ctx, p); err != nil {
 			return err
 		}
 	case "tekton.dev/v1/PipelineRun":
-		f, err = pac.ResolvePipelineRun(ctx, fname, o.Name)
+		f, err = pac.ResolvePipelineRun(ctx, fname, o.Name, runtimeParams)
 		if err != nil {
 			return fmt.Errorf("resolving with PAC: %w", err)
 		}
@@ -83,7 +89,7 @@ func run(ctx context.Context, fname string, runtimeParams map[string]string) err
 			return fmt.Errorf("unmarshalling %s as %s: %w", fname, key, err)
 		}
 
-		if err := validator.ValidatePipelineRun(ctx, pr, runtimeParams); err != nil {
+		if err := validator.ValidatePipelineRun(ctx, pr); err != nil {
 			return err
 		}
 	case "tekton.dev/v1/Task":

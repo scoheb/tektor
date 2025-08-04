@@ -10,7 +10,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-func ValidatePipelineRun(ctx context.Context, pr v1.PipelineRun, runtimeParams map[string]string) error {
+func ValidatePipelineRun(ctx context.Context, pr v1.PipelineRun) error {
 	if err := pr.Validate(ctx); err != nil {
 		var allErrors error
 		for _, e := range err.WrappedErrors() {
@@ -35,7 +35,7 @@ func ValidatePipelineRun(ctx context.Context, pr v1.PipelineRun, runtimeParams m
 			ObjectMeta: metav1.ObjectMeta{Name: "noname"},
 			Spec:       *pipelineSpec,
 		}
-		if err := ValidatePipeline(ctx, p, runtimeParams); err != nil {
+		if err := ValidatePipeline(ctx, p); err != nil {
 			return err
 		}
 	}
