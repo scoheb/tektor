@@ -46,10 +46,11 @@ spec:
 	// Test the validate function
 	ctx := context.Background()
 	runtimeParams := map[string]string{"testParam": "testValue"}
+	pacParams := map[string]string{"revision": "main"}
 
 	// For now, we expect this to fail because git repository detection doesn't work in tests
 	// but we can test that the function doesn't crash
-	err = run(ctx, pipelineFile, runtimeParams)
+	err = run(ctx, pipelineFile, runtimeParams, pacParams)
 	if err != nil {
 		// Expected to fail due to git repository detection in test environment
 		t.Logf("Validation failed as expected: %v", err)

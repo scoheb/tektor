@@ -134,7 +134,7 @@ spec:
 			t.Fatalf("failed to unmarshal pipeline YAML: %v", err)
 		}
 
-		err := ValidatePipeline(context.Background(), pipeline)
+		err := ValidatePipeline(context.Background(), pipeline, nil)
 
 		// The pipeline should validate successfully since it's already resolved
 		// (parameters are already substituted with actual values)

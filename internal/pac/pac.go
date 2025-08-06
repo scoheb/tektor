@@ -143,6 +143,7 @@ func ResolvePipelineRun(ctx context.Context, fname string, prName string, runtim
 }
 
 func ResolvePipeline(ctx context.Context, fname string, pipelineName string, runtimeParams map[string]string) ([]byte, error) {
+
 	_, params, pacDir, err := setupResolveContext(ctx, fname, runtimeParams)
 	if err != nil {
 		return nil, err
@@ -251,65 +252,65 @@ func applyParameterSubstitutionsToPipeline(pipeline *v1.Pipeline, params map[str
 
 // applyParameterSubstitutionsToPipelineRun applies parameter substitutions to all string fields in the PipelineRun
 func applyParameterSubstitutionsToPipelineRun(pr *v1.PipelineRun, params map[string]string) {
-       // Convert params to the format expected by ApplyReplacements
-       replacements := make(map[string]string)
-       for key, value := range params {
-               replacements["params."+key] = value
-       }
+	// Convert params to the format expected by ApplyReplacements
+	replacements := make(map[string]string)
+	for key, value := range params {
+		replacements["params."+key] = value
+	}
 
-       // Apply substitutions to PipelineRun parameters
-       for i := range pr.Spec.Params {
-               param := &pr.Spec.Params[i]
-               if param.Value.StringVal != "" {
-                       param.Value.StringVal = substitution.ApplyReplacements(param.Value.StringVal, replacements)
-               }
-       }
+	// Apply substitutions to PipelineRun parameters
+	for i := range pr.Spec.Params {
+		param := &pr.Spec.Params[i]
+		if param.Value.StringVal != "" {
+			param.Value.StringVal = substitution.ApplyReplacements(param.Value.StringVal, replacements)
+		}
+	}
 
-       // Apply substitutions to pipeline tasks
-       for i := range pr.Spec.PipelineSpec.Tasks {
-               task := &pr.Spec.PipelineSpec.Tasks[i]
+	// Apply substitutions to pipeline tasks
+	for i := range pr.Spec.PipelineSpec.Tasks {
+		task := &pr.Spec.PipelineSpec.Tasks[i]
 
-               // Apply substitutions to task parameters
-               for j := range task.Params {
-                       param := &task.Params[j]
-                       if param.Value.StringVal != "" {
-                               param.Value.StringVal = substitution.ApplyReplacements(param.Value.StringVal, replacements)
-                       }
-               }
+		// Apply substitutions to task parameters
+		for j := range task.Params {
+			param := &task.Params[j]
+			if param.Value.StringVal != "" {
+				param.Value.StringVal = substitution.ApplyReplacements(param.Value.StringVal, replacements)
+			}
+		}
 
-               // Apply substitutions to TaskRef parameters
-               if task.TaskRef != nil && task.TaskRef.Params != nil {
-                       for j := range task.TaskRef.Params {
-                               param := &task.TaskRef.Params[j]
-                               if param.Value.StringVal != "" {
-                                       param.Value.StringVal = substitution.ApplyReplacements(param.Value.StringVal, replacements)
-                               }
-                       }
-               }
-       }
+		// Apply substitutions to TaskRef parameters
+		if task.TaskRef != nil && task.TaskRef.Params != nil {
+			for j := range task.TaskRef.Params {
+				param := &task.TaskRef.Params[j]
+				if param.Value.StringVal != "" {
+					param.Value.StringVal = substitution.ApplyReplacements(param.Value.StringVal, replacements)
+				}
+			}
+		}
+	}
 
-       // Apply substitutions to finally tasks
-       for i := range pr.Spec.PipelineSpec.Finally {
-               task := &pr.Spec.PipelineSpec.Finally[i]
+	// Apply substitutions to finally tasks
+	for i := range pr.Spec.PipelineSpec.Finally {
+		task := &pr.Spec.PipelineSpec.Finally[i]
 
-               // Apply substitutions to task parameters
-               for j := range task.Params {
-                       param := &task.Params[j]
-                       if param.Value.StringVal != "" {
-                               param.Value.StringVal = substitution.ApplyReplacements(param.Value.StringVal, replacements)
-                       }
-               }
+		// Apply substitutions to task parameters
+		for j := range task.Params {
+			param := &task.Params[j]
+			if param.Value.StringVal != "" {
+				param.Value.StringVal = substitution.ApplyReplacements(param.Value.StringVal, replacements)
+			}
+		}
 
-               // Apply substitutions to TaskRef parameters
-               if task.TaskRef != nil && task.TaskRef.Params != nil {
-                       for j := range task.TaskRef.Params {
-                               param := &task.TaskRef.Params[j]
-                               if param.Value.StringVal != "" {
-                                       param.Value.StringVal = substitution.ApplyReplacements(param.Value.StringVal, replacements)
-                               }
-                       }
-               }
-       }
+		// Apply substitutions to TaskRef parameters
+		if task.TaskRef != nil && task.TaskRef.Params != nil {
+			for j := range task.TaskRef.Params {
+				param := &task.TaskRef.Params[j]
+				if param.Value.StringVal != "" {
+					param.Value.StringVal = substitution.ApplyReplacements(param.Value.StringVal, replacements)
+				}
+			}
+		}
+	}
 }
 
 // cleanedup regexp do as much as we can but really it's a lost game to try this

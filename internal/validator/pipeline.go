@@ -47,7 +47,7 @@ func resolveParamsInTaskRefParams(params v1.Params, runtimeParams map[string]str
 	return resolvedParams
 }
 
-func ValidatePipeline(ctx context.Context, p v1.Pipeline) error {
+func ValidatePipeline(ctx context.Context, p v1.Pipeline, runtimeParams map[string]string) error {
 
 	if err := p.Validate(ctx); err != nil {
 		var allErrors error
@@ -79,7 +79,7 @@ func ValidatePipeline(ctx context.Context, p v1.Pipeline) error {
 		allTaskResultRefs[pipelineTask.Name] = v1.PipelineTaskResultRefs(&pipelineTask)
 		params := pipelineTask.Params
 
-		taskSpec, err := taskSpecFromPipelineTask(ctx, pipelineTask)
+		taskSpec, err := taskSpecFromPipelineTask(ctx, pipelineTask, runtimeParams)
 		if err != nil {
 			return fmt.Errorf("retrieving task spec from %s pipeline task: %w", pipelineTask.Name, err)
 		}
@@ -111,7 +111,7 @@ func ValidatePipeline(ctx context.Context, p v1.Pipeline) error {
 	return nil
 }
 
-func taskSpecFromPipelineTask(ctx context.Context, pipelineTask v1.PipelineTask) (*v1.TaskSpec, error) {
+func taskSpecFromPipelineTask(ctx context.Context, pipelineTask v1.PipelineTask, runtimeParams map[string]string) (*v1.TaskSpec, error) {
 	// Embedded task spec
 	if pipelineTask.TaskSpec != nil {
 		// Custom Tasks are not supported
@@ -141,8 +141,9 @@ func taskSpecFromPipelineTask(ctx context.Context, pipelineTask v1.PipelineTask)
 	}
 
 	if pipelineTask.TaskRef != nil && pipelineTask.TaskRef.Resolver == "git" {
-		// Since the pipeline is already resolved by PaC, we can use the params as-is
-		params, err := git.PopulateDefaultParams(ctx, pipelineTask.TaskRef.Params)
+		// Apply runtime parameter substitution to TaskRef params
+		resolvedParams := resolveParamsInTaskRefParams(pipelineTask.TaskRef.Params, runtimeParams)
+		params, err := git.PopulateDefaultParams(ctx, resolvedParams)
 		if err != nil {
 			return nil, err
 		}
