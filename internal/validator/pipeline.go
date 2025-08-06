@@ -121,9 +121,11 @@ func taskSpecFromPipelineTask(ctx context.Context, pipelineTask v1.PipelineTask,
 		return &pipelineTask.TaskSpec.TaskSpec, nil
 	}
 
+	resolvedParams := resolveParamsInTaskRefParams(pipelineTask.TaskRef.Params, runtimeParams)
+
 	if pipelineTask.TaskRef != nil && pipelineTask.TaskRef.Resolver == "bundles" {
 		// Since the pipeline is already resolved by PaC, we can use the params as-is
-		opts, err := bundleResolverOptions(ctx, pipelineTask.TaskRef.Params)
+		opts, err := bundleResolverOptions(ctx, resolvedParams)
 		if err != nil {
 			return nil, err
 		}
@@ -142,7 +144,6 @@ func taskSpecFromPipelineTask(ctx context.Context, pipelineTask v1.PipelineTask,
 
 	if pipelineTask.TaskRef != nil && pipelineTask.TaskRef.Resolver == "git" {
 		// Apply runtime parameter substitution to TaskRef params
-		resolvedParams := resolveParamsInTaskRefParams(pipelineTask.TaskRef.Params, runtimeParams)
 		params, err := git.PopulateDefaultParams(ctx, resolvedParams)
 		if err != nil {
 			return nil, err
