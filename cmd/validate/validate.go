@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 	v1 "github.com/tektoncd/pipeline/pkg/apis/pipeline/v1"
@@ -15,17 +16,47 @@ import (
 	"github.com/lcarva/tektor/internal/validator"
 )
 
+var (
+	runtimeParams []string
+	pacParams     []string
+)
+
 var ValidateCmd = &cobra.Command{
 	Use:     "validate",
 	Short:   "Validate a Tekton resource",
-	Example: "tekton validate /tmp/pipeline.yaml",
+	Example: "tektor validate /tmp/pipeline.yaml --param taskGitUrl=https://github.com/example/repo --pac-param revision=main",
 	Args:    cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return run(cmd.Context(), args[0])
+		params, err := parseRuntimeParams(runtimeParams)
+		if err != nil {
+			return fmt.Errorf("parsing runtime parameters: %w", err)
+		}
+		pacParamsMap, err := parseRuntimeParams(pacParams)
+		if err != nil {
+			return fmt.Errorf("parsing PaC parameters: %w", err)
+		}
+		return run(cmd.Context(), args[0], params, pacParamsMap)
 	},
 }
 
-func run(ctx context.Context, fname string) error {
+func init() {
+	ValidateCmd.Flags().StringArrayVar(&runtimeParams, "param", []string{}, "Runtime parameters in format key=value (can be specified multiple times)")
+	ValidateCmd.Flags().StringArrayVar(&pacParams, "pac-param", []string{}, "PaC template parameters in format key=value (can be specified multiple times)")
+}
+
+func parseRuntimeParams(params []string) (map[string]string, error) {
+	result := make(map[string]string)
+	for _, param := range params {
+		parts := strings.SplitN(param, "=", 2)
+		if len(parts) != 2 {
+			return nil, fmt.Errorf("invalid parameter format: %s (expected key=value)", param)
+		}
+		result[parts[0]] = parts[1]
+	}
+	return result, nil
+}
+
+func run(ctx context.Context, fname string, runtimeParams map[string]string, pacParams map[string]string) error {
 	fmt.Printf("Validating %s\n", fname)
 	f, err := os.ReadFile(fname)
 	if err != nil {
@@ -40,15 +71,23 @@ func run(ctx context.Context, fname string) error {
 	key := fmt.Sprintf("%s/%s", o.APIVersion, o.Kind)
 	switch key {
 	case "tekton.dev/v1/Pipeline":
-		var p v1.Pipeline
-		if err := yaml.Unmarshal(f, &p); err != nil {
-			return fmt.Errorf("unmarshalling %s as %s: %w", fname, key, err)
+		// Resolve the pipeline using PaC to handle parameter substitutions and inlined tasks
+		// Use runtimeParams for Tekton parameter substitution and pacParams for PaC template substitution
+		resolvedPipelineBytes, err := pac.ResolvePipeline(ctx, fname, o.Name, pacParams)
+		if err != nil {
+			return fmt.Errorf("resolving pipeline with PAC: %w", err)
 		}
-		if err := validator.ValidatePipeline(ctx, p); err != nil {
+
+		var p v1.Pipeline
+		if err := yaml.Unmarshal(resolvedPipelineBytes, &p); err != nil {
+			return fmt.Errorf("unmarshalling resolved pipeline as %s: %w", key, err)
+		}
+		if err := validator.ValidatePipeline(ctx, p, runtimeParams); err != nil {
 			return err
 		}
 	case "tekton.dev/v1/PipelineRun":
-		f, err = pac.ResolvePipelineRun(ctx, fname, o.Name)
+		// Use runtimeParams for Tekton parameter substitution and pacParams for PaC template substitution
+		f, err = pac.ResolvePipelineRun(ctx, fname, o.Name, pacParams)
 		if err != nil {
 			return fmt.Errorf("resolving with PAC: %w", err)
 		}

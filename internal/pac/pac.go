@@ -31,14 +31,15 @@ The implementation in github.com/openshift-pipelines/pipelines-as-code is not do
 manner. As such, the majority of the code here was copied and pasted from that repo.
 */
 
-func ResolvePipelineRun(ctx context.Context, fname string, prName string) ([]byte, error) {
+// setupResolveContext handles the common setup for both pipeline and pipeline run resolution
+func setupResolveContext(ctx context.Context, fname string, pacParams map[string]string) (*params.Run, map[string]string, string, error) {
 	run := params.New()
 	errc := run.Clients.NewClients(ctx, &run.Info)
 	zaplog, err := zap.NewProduction(
 		zap.IncreaseLevel(zap.FatalLevel),
 	)
 	if err != nil {
-		return nil, err
+		return nil, nil, "", err
 	}
 	run.Clients.Log = zaplog.Sugar()
 
@@ -46,7 +47,7 @@ func ResolvePipelineRun(ctx context.Context, fname string, prName string) ([]byt
 		// Allow resolve to be run without a kubeconfig
 		noConfigErr := strings.Contains(errc.Error(), "Couldn't get kubeConfiguration namespace")
 		if !noConfigErr {
-			return nil, errc
+			return nil, nil, "", errc
 		}
 	} else {
 		// It's OK  if pac is not installed, ignore the error
@@ -55,9 +56,10 @@ func ResolvePipelineRun(ctx context.Context, fname string, prName string) ([]byt
 
 	pacConfig := map[string]string{}
 	if err := settings.ConfigToSettings(run.Clients.Log, run.Info.Pac.Settings, pacConfig); err != nil {
-		return nil, err
+		return nil, nil, "", err
 	}
 
+	// Start with git-derived parameters
 	params := map[string]string{}
 
 	gitinfo := git.GetGitInfo(path.Dir(fname))
@@ -68,31 +70,47 @@ func ResolvePipelineRun(ctx context.Context, fname string, prName string) ([]byt
 		params["repo_url"] = gitinfo.URL
 		repoOwner, err := formatting.GetRepoOwnerFromURL(gitinfo.URL)
 		if err != nil {
-			return nil, fmt.Errorf("getting git repo owner: %w", err)
+			return nil, nil, "", fmt.Errorf("getting git repo owner: %w", err)
 		}
 		params["repo_owner"] = strings.Split(repoOwner, "/")[0]
 		params["repo_name"] = strings.Split(repoOwner, "/")[1]
 	}
 
-	pacDir := path.Join(gitinfo.TopLevelPath, ".tekton")
-	allTemplates := templates.ReplacePlaceHoldersVariables(enumerateFiles([]string{pacDir}), params)
+	// Add runtime parameters, which will override git-derived ones if there are conflicts
+	for key, value := range pacParams {
+		params[key] = value
+	}
 
-	// We use github here but since we don't do remotetask we would not care
-	providerintf := github.New()
-	event := info.NewEvent()
+	pacDir := path.Join(gitinfo.TopLevelPath, ".tekton")
+
 	// Must change working dir to git repo so local fs resolver works
 	if gitinfo.TopLevelPath != "" {
 		wd, err := os.Getwd()
 		if err != nil {
-			return nil, fmt.Errorf("getting current working directory: %w", err)
+			return nil, nil, "", fmt.Errorf("getting current working directory: %w", err)
 		}
 		if err := os.Chdir(gitinfo.TopLevelPath); err != nil {
-			return nil, fmt.Errorf("changing working directory: %w", err)
+			return nil, nil, "", fmt.Errorf("changing working directory: %w", err)
 		}
 		defer func(wd string) {
 			_ = os.Chdir(wd)
 		}(wd)
 	}
+
+	return run, params, pacDir, nil
+}
+
+func ResolvePipelineRun(ctx context.Context, fname string, prName string, pacParams map[string]string) ([]byte, error) {
+	run, params, pacDir, err := setupResolveContext(ctx, fname, pacParams)
+	if err != nil {
+		return nil, err
+	}
+
+	allTemplates := templates.ReplacePlaceHoldersVariables(enumerateFiles([]string{pacDir}), params)
+
+	// We use github here but since we don't do remotetask we would not care
+	providerintf := github.New()
+	event := info.NewEvent()
 
 	ropt := &resolve.Opts{RemoteTasks: true}
 	prs, err := resolve.Resolve(ctx, run, run.Clients.Log, providerintf, event, allTemplates, ropt)
@@ -115,6 +133,55 @@ func ResolvePipelineRun(ctx context.Context, fname string, prName string) ([]byt
 	d, err := yaml.Marshal(pr)
 	if err != nil {
 		return nil, fmt.Errorf("marshaling pac resolved pipelinerun: %w", err)
+	}
+
+	return cleanRe.ReplaceAll(d, []byte("\n")), nil
+}
+
+func ResolvePipeline(ctx context.Context, fname string, pipelineName string, pacParams map[string]string) ([]byte, error) {
+
+	_, params, pacDir, err := setupResolveContext(ctx, fname, pacParams)
+	if err != nil {
+		return nil, err
+	}
+
+	// Include both the .tekton directory and the actual pipeline file being validated
+	var templatePaths []string
+	if pacDir != "" {
+		templatePaths = append(templatePaths, pacDir)
+	}
+	templatePaths = append(templatePaths, fname)
+
+	allTemplates := templates.ReplacePlaceHoldersVariables(enumerateFiles(templatePaths), params)
+
+	// Parse the templates to find Pipeline objects
+	var pipeline *v1.Pipeline
+	documents := strings.Split(allTemplates, "---")
+	for _, doc := range documents {
+		doc = strings.TrimSpace(doc)
+		if doc == "" {
+			continue
+		}
+
+		// Try to unmarshal as Pipeline
+		var p v1.Pipeline
+		if err := yaml.Unmarshal([]byte(doc), &p); err == nil {
+			if p.Kind == "Pipeline" && p.Name == pipelineName {
+				pipeline = &p
+				break
+			}
+		}
+	}
+
+	if pipeline == nil {
+		return nil, fmt.Errorf("unable to find %q pipeline in templates", pipelineName)
+	}
+
+	pipeline.APIVersion = v1.SchemeGroupVersion.String()
+	pipeline.Kind = "Pipeline"
+	d, err := yaml.Marshal(pipeline)
+	if err != nil {
+		return nil, fmt.Errorf("marshaling pac resolved pipeline: %w", err)
 	}
 
 	return cleanRe.ReplaceAll(d, []byte("\n")), nil

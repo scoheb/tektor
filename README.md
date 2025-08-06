@@ -16,10 +16,11 @@ It currently supports the following:
   [PaC resolver](https://docs.openshift.com/pipelines/1.11/pac/using-pac-resolver.html),
   [Bundles resolver](https://tekton.dev/docs/pipelines/bundle-resolver/), and embedded Task
   definitions.
+* Resolve remote Tasks via [git resolver](https://tekton.dev/docs/pipelines/git-resolver/).
+* Specify runtime parameters that may be used in resolver parameter values
 
 Future work:
 
-* Resolve remote Tasks via [git resolver](https://tekton.dev/docs/pipelines/git-resolver/).
 * Verify workspace usage.
 * Verify PipelineRun parameters match parameters from Pipeline definition.
 * Verify results are used according to their defined types.

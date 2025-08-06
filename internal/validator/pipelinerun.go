@@ -35,7 +35,14 @@ func ValidatePipelineRun(ctx context.Context, pr v1.PipelineRun) error {
 			ObjectMeta: metav1.ObjectMeta{Name: "noname"},
 			Spec:       *pipelineSpec,
 		}
-		if err := ValidatePipeline(ctx, p); err != nil {
+
+		// Extract runtime parameters from PipelineRun
+		runtimeParams := make(map[string]string)
+		for _, param := range pr.Spec.Params {
+			runtimeParams[param.Name] = param.Value.StringVal
+		}
+
+		if err := ValidatePipeline(ctx, p, runtimeParams); err != nil {
 			return err
 		}
 	}
