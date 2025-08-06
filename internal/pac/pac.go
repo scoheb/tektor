@@ -19,7 +19,6 @@ import (
 	"github.com/openshift-pipelines/pipelines-as-code/pkg/resolve"
 	"github.com/openshift-pipelines/pipelines-as-code/pkg/templates"
 	v1 "github.com/tektoncd/pipeline/pkg/apis/pipeline/v1"
-	"github.com/tektoncd/pipeline/pkg/substitution"
 	"go.uber.org/zap"
 	"sigs.k8s.io/yaml"
 )
@@ -129,9 +128,6 @@ func ResolvePipelineRun(ctx context.Context, fname string, prName string, pacPar
 		return nil, fmt.Errorf("unable to find %q pipelinerun after pac resolution", prName)
 	}
 
-	// Apply additional parameter substitutions to the PipelineRun structure
-	applyParameterSubstitutionsToPipelineRun(pr, params)
-
 	pr.APIVersion = v1.SchemeGroupVersion.String()
 	pr.Kind = "PipelineRun"
 	d, err := yaml.Marshal(pr)
@@ -181,10 +177,6 @@ func ResolvePipeline(ctx context.Context, fname string, pipelineName string, pac
 		return nil, fmt.Errorf("unable to find %q pipeline in templates", pipelineName)
 	}
 
-	// Apply additional parameter substitutions to the pipeline structure
-	// This handles cases where PaC template substitution didn't catch all parameter references
-	applyParameterSubstitutionsToPipeline(pipeline, params)
-
 	pipeline.APIVersion = v1.SchemeGroupVersion.String()
 	pipeline.Kind = "Pipeline"
 	d, err := yaml.Marshal(pipeline)
@@ -193,124 +185,6 @@ func ResolvePipeline(ctx context.Context, fname string, pipelineName string, pac
 	}
 
 	return cleanRe.ReplaceAll(d, []byte("\n")), nil
-}
-
-// applyParameterSubstitutionsToPipeline applies parameter substitutions to all string fields in the pipeline
-func applyParameterSubstitutionsToPipeline(pipeline *v1.Pipeline, params map[string]string) {
-	// Convert params to the format expected by ApplyReplacements
-	replacements := make(map[string]string)
-	for key, value := range params {
-		replacements["params."+key] = value
-	}
-
-	// Apply substitutions to pipeline tasks
-	for i := range pipeline.Spec.Tasks {
-		task := &pipeline.Spec.Tasks[i]
-
-		// Apply substitutions to task parameters
-		for j := range task.Params {
-			param := &task.Params[j]
-			if param.Value.StringVal != "" {
-				param.Value.StringVal = substitution.ApplyReplacements(param.Value.StringVal, replacements)
-			}
-		}
-
-		// Apply substitutions to TaskRef parameters
-		if task.TaskRef != nil && task.TaskRef.Params != nil {
-			for j := range task.TaskRef.Params {
-				param := &task.TaskRef.Params[j]
-				if param.Value.StringVal != "" {
-					param.Value.StringVal = substitution.ApplyReplacements(param.Value.StringVal, replacements)
-				}
-			}
-		}
-	}
-
-	// Apply substitutions to finally tasks
-	for i := range pipeline.Spec.Finally {
-		task := &pipeline.Spec.Finally[i]
-
-		// Apply substitutions to task parameters
-		for j := range task.Params {
-			param := &task.Params[j]
-			if param.Value.StringVal != "" {
-				param.Value.StringVal = substitution.ApplyReplacements(param.Value.StringVal, replacements)
-			}
-		}
-
-		// Apply substitutions to TaskRef parameters
-		if task.TaskRef != nil && task.TaskRef.Params != nil {
-			for j := range task.TaskRef.Params {
-				param := &task.TaskRef.Params[j]
-				if param.Value.StringVal != "" {
-					param.Value.StringVal = substitution.ApplyReplacements(param.Value.StringVal, replacements)
-				}
-			}
-		}
-	}
-}
-
-// applyParameterSubstitutionsToPipelineRun applies parameter substitutions to all string fields in the PipelineRun
-func applyParameterSubstitutionsToPipelineRun(pr *v1.PipelineRun, params map[string]string) {
-	// Convert params to the format expected by ApplyReplacements
-	replacements := make(map[string]string)
-	for key, value := range params {
-		replacements["params."+key] = value
-	}
-
-	// Apply substitutions to PipelineRun parameters
-	for i := range pr.Spec.Params {
-		param := &pr.Spec.Params[i]
-		if param.Value.StringVal != "" {
-			param.Value.StringVal = substitution.ApplyReplacements(param.Value.StringVal, replacements)
-		}
-	}
-
-	// Apply substitutions to pipeline tasks
-	for i := range pr.Spec.PipelineSpec.Tasks {
-		task := &pr.Spec.PipelineSpec.Tasks[i]
-
-		// Apply substitutions to task parameters
-		for j := range task.Params {
-			param := &task.Params[j]
-			if param.Value.StringVal != "" {
-				param.Value.StringVal = substitution.ApplyReplacements(param.Value.StringVal, replacements)
-			}
-		}
-
-		// Apply substitutions to TaskRef parameters
-		if task.TaskRef != nil && task.TaskRef.Params != nil {
-			for j := range task.TaskRef.Params {
-				param := &task.TaskRef.Params[j]
-				if param.Value.StringVal != "" {
-					param.Value.StringVal = substitution.ApplyReplacements(param.Value.StringVal, replacements)
-				}
-			}
-		}
-	}
-
-	// Apply substitutions to finally tasks
-	for i := range pr.Spec.PipelineSpec.Finally {
-		task := &pr.Spec.PipelineSpec.Finally[i]
-
-		// Apply substitutions to task parameters
-		for j := range task.Params {
-			param := &task.Params[j]
-			if param.Value.StringVal != "" {
-				param.Value.StringVal = substitution.ApplyReplacements(param.Value.StringVal, replacements)
-			}
-		}
-
-		// Apply substitutions to TaskRef parameters
-		if task.TaskRef != nil && task.TaskRef.Params != nil {
-			for j := range task.TaskRef.Params {
-				param := &task.TaskRef.Params[j]
-				if param.Value.StringVal != "" {
-					param.Value.StringVal = substitution.ApplyReplacements(param.Value.StringVal, replacements)
-				}
-			}
-		}
-	}
 }
 
 // cleanedup regexp do as much as we can but really it's a lost game to try this
