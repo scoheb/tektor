@@ -33,7 +33,7 @@ manner. As such, the majority of the code here was copied and pasted from that r
 */
 
 // setupResolveContext handles the common setup for both pipeline and pipeline run resolution
-func setupResolveContext(ctx context.Context, fname string, runtimeParams map[string]string) (*params.Run, map[string]string, string, error) {
+func setupResolveContext(ctx context.Context, fname string, pacParams map[string]string) (*params.Run, map[string]string, string, error) {
 	run := params.New()
 	errc := run.Clients.NewClients(ctx, &run.Info)
 	zaplog, err := zap.NewProduction(
@@ -78,7 +78,7 @@ func setupResolveContext(ctx context.Context, fname string, runtimeParams map[st
 	}
 
 	// Add runtime parameters, which will override git-derived ones if there are conflicts
-	for key, value := range runtimeParams {
+	for key, value := range pacParams {
 		params[key] = value
 	}
 
@@ -101,8 +101,8 @@ func setupResolveContext(ctx context.Context, fname string, runtimeParams map[st
 	return run, params, pacDir, nil
 }
 
-func ResolvePipelineRun(ctx context.Context, fname string, prName string, runtimeParams map[string]string) ([]byte, error) {
-	run, params, pacDir, err := setupResolveContext(ctx, fname, runtimeParams)
+func ResolvePipelineRun(ctx context.Context, fname string, prName string, pacParams map[string]string) ([]byte, error) {
+	run, params, pacDir, err := setupResolveContext(ctx, fname, pacParams)
 	if err != nil {
 		return nil, err
 	}
@@ -142,9 +142,9 @@ func ResolvePipelineRun(ctx context.Context, fname string, prName string, runtim
 	return cleanRe.ReplaceAll(d, []byte("\n")), nil
 }
 
-func ResolvePipeline(ctx context.Context, fname string, pipelineName string, runtimeParams map[string]string) ([]byte, error) {
+func ResolvePipeline(ctx context.Context, fname string, pipelineName string, pacParams map[string]string) ([]byte, error) {
 
-	_, params, pacDir, err := setupResolveContext(ctx, fname, runtimeParams)
+	_, params, pacDir, err := setupResolveContext(ctx, fname, pacParams)
 	if err != nil {
 		return nil, err
 	}
