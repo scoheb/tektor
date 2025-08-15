@@ -11,16 +11,26 @@ inputs:
     description: 'Whether to fail the action if validation errors are found'
     required: false
     default: 'true'
-  
+
   verbose:
     description: 'Enable verbose output'
     required: false
     default: 'false'
 
+  params:
+    description: 'Runtime parameters for Tekton parameter substitution (format: key1=value1,key2=value2)'
+    required: false
+    default: ''
+
+  pac-params:
+    description: 'PaC template parameters for PaC template substitution (format: key1=value1,key2=value2)'
+    required: false
+    default: ''
+
 outputs:
   validated-files:
     description: 'Number of files that were validated'
-  
+
   validation-errors:
     description: 'Number of validation errors found'
 
@@ -31,7 +41,7 @@ runs:
       uses: actions/setup-go@v4
       with:
         go-version-file: '${{ github.action_path }}/go.mod'
-    
+
     - name: Build tektor
       shell: bash
       working-directory: ${{ github.action_path }}
@@ -39,11 +49,13 @@ runs:
         echo "Building tektor..."
         go build -o ./build/tektor main.go
         chmod +x ./build/tektor
-    
+
     - name: Validate Tekton resources
       shell: bash
       env:
         FAIL_ON_ERROR: ${{ inputs.fail-on-error }}
         VERBOSE: ${{ inputs.verbose }}
+        TEKTOR_PARAMS: ${{ inputs.params }}
+        TEKTOR_PAC_PARAMS: ${{ inputs.pac-params }}
       run: |
         ${{ github.action_path }}/validate.sh

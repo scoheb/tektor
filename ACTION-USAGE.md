@@ -20,7 +20,7 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        
+
       - name: Get changed files
         id: changed-files
         uses: tj-actions/changed-files@v44
@@ -28,14 +28,14 @@ jobs:
           files: |
             **/*.yaml
             **/*.yml
-      
+
       - name: Checkout Tektor action
         uses: actions/checkout@v4
         with:
           repository: lcarva/tektor  # Replace with actual repo
           path: .github/actions/tektor
           ref: main  # Use specific tag for stability
-      
+
       - name: Validate Tekton resources
         uses: ./.github/actions/tektor
         env:
@@ -43,6 +43,8 @@ jobs:
         with:
           fail-on-error: true
           verbose: true
+          params: 'taskGitUrl=https://github.com/tektoncd/catalog,gitRevision=main'
+          pac-params: 'revision=main,branch=development'
 ```
 
 ## Method 2: Reusable Workflow ⭐ Best Practice
@@ -90,7 +92,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: true
-          
+
       - name: Get changed files
         id: changed-files
         uses: tj-actions/changed-files@v44
@@ -98,13 +100,14 @@ jobs:
           files: |
             **/*.yaml
             **/*.yml
-      
+
       - name: Validate Tekton resources
         uses: ./.github/actions/tektor
         env:
           CHANGED_FILES: ${{ steps.changed-files.outputs.all_changed_files }}
         with:
           fail-on-error: true
+          params: 'taskGitUrl=https://github.com/tektoncd/catalog,gitRevision=main'
 ```
 
 ## Method 4: Copy Action Files
@@ -141,9 +144,69 @@ Then use it as a local action:
   with:
     repository: your-org/tektor  # Your fork
     path: .github/actions/tektor
-    
+
 - name: Validate Tekton resources
   uses: ./.github/actions/tektor
+```
+
+## Parameter Support
+
+Tektor supports two types of parameters to customize validation behavior:
+
+### Runtime Parameters (`params`)
+
+Runtime parameters are used for Tekton parameter substitution within your pipeline and task definitions. These help resolve parameter references like `$(params.paramName)` during validation.
+
+```yaml
+- name: Validate Tekton resources
+  uses: ./.github/actions/tektor
+  env:
+    CHANGED_FILES: ${{ steps.changed-files.outputs.all_changed_files }}
+  with:
+    params: 'taskGitUrl=https://github.com/tektoncd/catalog,gitRevision=main,imageTag=v1.0.0'
+```
+
+### PaC Template Parameters (`pac-params`)
+
+PaC (Pipelines as Code) template parameters are used for PaC template substitution and preprocessing before validation.
+
+```yaml
+- name: Validate Tekton resources
+  uses: ./.github/actions/tektor
+  env:
+    CHANGED_FILES: ${{ steps.changed-files.outputs.all_changed_files }}
+  with:
+    pac-params: 'revision=main,branch=development,environment=staging'
+```
+
+### Using Both Parameter Types
+
+You can use both parameter types together for comprehensive validation:
+
+```yaml
+- name: Validate Tekton resources with parameters
+  uses: ./.github/actions/tektor
+  env:
+    CHANGED_FILES: ${{ steps.changed-files.outputs.all_changed_files }}
+  with:
+    fail-on-error: true
+    verbose: true
+    params: 'taskGitUrl=https://github.com/tektoncd/catalog,gitRevision=main'
+    pac-params: 'revision=main,branch=development'
+```
+
+### Dynamic Parameter Values
+
+Parameters can be dynamically set using GitHub Actions expressions:
+
+```yaml
+- name: Validate Tekton resources with dynamic params
+  uses: ./.github/actions/tektor
+  env:
+    CHANGED_FILES: ${{ steps.changed-files.outputs.all_changed_files }}
+  with:
+    params: 'gitRevision=${{ github.sha }},branch=${{ github.ref_name }}'
+    pac-params: 'revision=${{ github.event.pull_request.head.sha || github.sha }}'
 ```
 
 ## Advanced Usage Examples
@@ -159,7 +222,7 @@ Then use it as a local action:
       pipelines/**/*.yaml
       tasks/**/*.yml
       .tekton/**/*.yaml
-      
+
 - name: Validate if Tekton files changed
   if: steps.changed-files.outputs.any_changed == 'true'
   uses: ./.github/actions/tektor
@@ -179,6 +242,7 @@ Then use it as a local action:
   with:
     fail-on-error: false
     verbose: true
+    params: 'gitRevision=${{ github.sha }},repoUrl=${{ github.event.repository.clone_url }}'
 
 - name: Comment on PR if validation failed
   if: steps.validate.outputs.validation-errors != '0'
@@ -199,14 +263,14 @@ Then use it as a local action:
 strategy:
   matrix:
     directory: [pipelines, tasks, triggers]
-    
+
 steps:
   - name: Get changed files in ${{ matrix.directory }}
     id: changed-files
     uses: tj-actions/changed-files@v44
     with:
       files: ${{ matrix.directory }}/**/*.{yaml,yml}
-      
+
   - name: Validate ${{ matrix.directory }}
     if: steps.changed-files.outputs.any_changed == 'true'
     uses: ./.github/actions/tektor
