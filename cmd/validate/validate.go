@@ -117,7 +117,7 @@ func run(ctx context.Context, fname string, runtimeParams map[string]string, pac
 			return err
 		}
 	default:
-		return fmt.Errorf("%s is not supported", key)
+		fmt.Printf("%s is not supported as a Tekton resource\n", fname)
 	}
 
 	return nil
