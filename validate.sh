@@ -100,9 +100,9 @@ validate_file() {
         tektor_exit_code=$?
     fi
 
-    # Check if the file was skipped (not a Tekton resource)
-    if [[ $tektor_exit_code -eq 0 && "$tektor_output" == *"is not supported"* ]]; then
-        log_skipped "✓ $file (not a Tekton resource)"
+    # Check if the file was skipped (not a Tekton resource) - exit code 2
+    if [[ $tektor_exit_code -eq 2 ]]; then
+        log_skipped "? $file (not a Tekton resource)"
         SKIPPED_COUNT=$((SKIPPED_COUNT + 1))
         return 0
     elif [[ $tektor_exit_code -eq 0 ]]; then
