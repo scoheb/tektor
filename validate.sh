@@ -1,6 +1,6 @@
 #!/bin/bash
 
-set -e
+set -euo pipefail
 
 # Colors for output
 RED='\033[0;31m'
@@ -29,44 +29,6 @@ log_warning() {
 
 log_error() {
     echo -e "${RED}[ERROR]${NC} $1"
-}
-
-# Function to check if a file is a supported Tekton resource
-is_tekton_resource() {
-    local file="$1"
-
-    # Skip if file doesn't exist
-    if [[ ! -f "$file" ]]; then
-        return 1
-    fi
-
-    # Check if it's a YAML file by extension
-    if [[ ! "$file" =~ \.(yaml|yml)$ ]]; then
-        return 1
-    fi
-
-    # Check if the file contains tekton.dev apiVersion
-    if ! grep -q "apiVersion:.*tekton\.dev" "$file" 2>/dev/null; then
-        return 1
-    fi
-
-    # Extract apiVersion and kind to verify it's a supported resource
-    local api_version=$(grep "apiVersion:" "$file" | head -1 | sed 's/.*apiVersion:[[:space:]]*\(.*\)/\1/' | tr -d '"')
-    local kind=$(grep "kind:" "$file" | head -1 | sed 's/.*kind:[[:space:]]*\(.*\)/\1/' | tr -d '"')
-
-    # Check if it's a supported resource type
-    local resource_key="${api_version}/${kind}"
-    case "$resource_key" in
-        "tekton.dev/v1/Pipeline"|"tekton.dev/v1/PipelineRun"|"tekton.dev/v1/Task"|"tekton.dev/v1beta1/Task")
-            return 0
-            ;;
-        *)
-            if [[ "$VERBOSE" == "true" ]]; then
-                log_warning "Skipping unsupported resource: $resource_key in $file"
-            fi
-            return 1
-            ;;
-    esac
 }
 
 # Function to build parameter arguments for tektor
@@ -175,18 +137,8 @@ main() {
             log_info "Checking file: $file"
         fi
 
-        if is_tekton_resource "$file"; then
-            if [[ "$VERBOSE" == "true" ]]; then
-                log_info "File $file is a Tekton resource, validating..."
-            fi
-
-            if ! validate_file "$file"; then
-                validation_failed=true
-            fi
-        else
-            if [[ "$VERBOSE" == "true" ]]; then
-                log_info "Skipping non-Tekton file: $file"
-            fi
+        if ! validate_file "$file"; then
+            validation_failed=true
         fi
     done
 

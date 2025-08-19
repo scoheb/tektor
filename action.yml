@@ -1,6 +1,6 @@
 name: 'Tektor Tekton Validator'
 description: 'Validate Tekton pipelines and tasks in a PR using tektor'
-author: 'Tektor Team'
+author: 'Konflux CI Team'
 
 branding:
   icon: 'check-circle'
