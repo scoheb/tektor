@@ -18,12 +18,12 @@ inputs:
     default: 'false'
 
   params:
-    description: 'Runtime parameters for Tekton parameter substitution (format: key1=value1,key2=value2)'
+    description: 'Runtime parameters for Tekton parameter substitution. Use multi-line format (one param per line)'
     required: false
     default: ''
 
   pac-params:
-    description: 'PaC template parameters for PaC template substitution (format: key1=value1,key2=value2)'
+    description: 'PaC template parameters for PaC template substitution. Use multi-line format (one param per line)'
     required: false
     default: ''
 

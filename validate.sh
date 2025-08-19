@@ -13,6 +13,7 @@ NC='\033[0m' # No Color
 VALIDATED_COUNT=0
 ERROR_COUNT=0
 CHECKED_COUNT=0
+SKIPPED_COUNT=0
 
 # Function to log messages
 log_info() {
@@ -23,6 +24,10 @@ log_success() {
     echo -e "${GREEN}[SUCCESS]${NC} $1"
 }
 
+log_skipped() {
+    echo -e "${YELLOW}[SKIPPED]${NC} $1"
+}
+
 log_warning() {
     echo -e "${YELLOW}[WARNING]${NC} $1"
 }
@@ -31,36 +36,6 @@ log_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
-# Function to build parameter arguments for tektor
-build_param_args() {
-    local param_args=()
-
-    # Process TEKTOR_PARAMS (runtime parameters)
-    if [[ -n "$TEKTOR_PARAMS" ]]; then
-        IFS=',' read -ra params <<< "$TEKTOR_PARAMS"
-        for param in "${params[@]}"; do
-            # Trim whitespace
-            param=$(echo "$param" | xargs)
-            if [[ -n "$param" ]]; then
-                param_args+=("--param" "$param")
-            fi
-        done
-    fi
-
-    # Process TEKTOR_PAC_PARAMS (PaC template parameters)
-    if [[ -n "$TEKTOR_PAC_PARAMS" ]]; then
-        IFS=',' read -ra pac_params <<< "$TEKTOR_PAC_PARAMS"
-        for param in "${pac_params[@]}"; do
-            # Trim whitespace
-            param=$(echo "$param" | xargs)
-            if [[ -n "$param" ]]; then
-                param_args+=("--pac-param" "$param")
-            fi
-        done
-    fi
-
-    echo "${param_args[@]}"
-}
 
 # Function to validate a single file
 validate_file() {
@@ -68,37 +43,80 @@ validate_file() {
 
     log_info "Validating: $file"
 
-    # Build parameter arguments
-    local param_args
-    param_args=$(build_param_args)
+    # Build parameter arguments array
+    local param_args=()
+    local param_count=0
 
-    if [[ "$VERBOSE" == "true" && -n "$param_args" ]]; then
-        log_info "Using parameters: $param_args"
+    # Debug: Show raw TEKTOR_PARAMS
+    if [[ "$VERBOSE" == "true" && -n "$TEKTOR_PARAMS" ]]; then
+        log_info "Raw TEKTOR_PARAMS: '$TEKTOR_PARAMS'"
     fi
 
-    # Execute tektor with parameters
-    if [[ -n "$param_args" ]]; then
-        # Use eval to properly handle the parameter array
-        if eval "$TEKTOR_BINARY validate $param_args \"$file\""; then
-            log_success "✓ $file"
-            VALIDATED_COUNT=$((VALIDATED_COUNT + 1))
-            return 0
-        else
-            log_error "✗ $file"
-            ERROR_COUNT=$((ERROR_COUNT + 1))
-            return 1
-        fi
+    # Process TEKTOR_PARAMS (runtime parameters) - newline-separated format only
+    if [[ -n "$TEKTOR_PARAMS" ]]; then
+        while IFS= read -r param; do
+            # Trim whitespace
+            param=$(echo "$param" | xargs)
+            if [[ -n "$param" ]]; then
+                param_args+=("--param" "$param")
+                param_count=$((param_count + 1))
+                if [[ "$VERBOSE" == "true" ]]; then
+                    log_info "Added runtime parameter: --param $param"
+                fi
+            fi
+        done <<< "$TEKTOR_PARAMS"
+    fi
+
+    # Process TEKTOR_PAC_PARAMS (PaC template parameters) - newline-separated format only
+    if [[ -n "$TEKTOR_PAC_PARAMS" ]]; then
+        while IFS= read -r param; do
+            # Trim whitespace
+            param=$(echo "$param" | xargs)
+            if [[ -n "$param" ]]; then
+                param_args+=("--pac-param" "$param")
+                param_count=$((param_count + 1))
+                if [[ "$VERBOSE" == "true" ]]; then
+                    log_info "Added PaC parameter: --pac-param $param"
+                fi
+            fi
+        done <<< "$TEKTOR_PAC_PARAMS"
+    fi
+
+    if [[ "$VERBOSE" == "true" && $param_count -gt 0 ]]; then
+        log_info "Total parameters: $param_count (${#param_args[@]} array elements)"
+        log_info "Parameter array: ${param_args[*]}"
+    fi
+
+    # Execute tektor with parameters and capture output
+    local tektor_output
+    local tektor_exit_code
+
+    if [[ ${#param_args[@]} -gt 0 ]]; then
+        tektor_output=$("${TEKTOR_BINARY}" validate "${param_args[@]}" "${file}" 2>&1)
+        tektor_exit_code=$?
     else
         # No parameters, use original command
-        if "$TEKTOR_BINARY" validate "$file"; then
-            log_success "✓ $file"
-            VALIDATED_COUNT=$((VALIDATED_COUNT + 1))
-            return 0
-        else
-            log_error "✗ $file"
-            ERROR_COUNT=$((ERROR_COUNT + 1))
-            return 1
+        tektor_output=$("$TEKTOR_BINARY" validate "$file" 2>&1)
+        tektor_exit_code=$?
+    fi
+
+    # Check if the file was skipped (not a Tekton resource)
+    if [[ $tektor_exit_code -eq 0 && "$tektor_output" == *"is not supported"* ]]; then
+        log_skipped "✓ $file (not a Tekton resource)"
+        SKIPPED_COUNT=$((SKIPPED_COUNT + 1))
+        return 0
+    elif [[ $tektor_exit_code -eq 0 ]]; then
+        log_success "✓ $file"
+        VALIDATED_COUNT=$((VALIDATED_COUNT + 1))
+        return 0
+    else
+        log_error "✗ $file"
+        # Show the error output if verbose mode is enabled
+        if [[ "$VERBOSE" == "true" && -n "$tektor_output" ]]; then
+            echo "$tektor_output"
         fi
+        ERROR_COUNT=$((ERROR_COUNT + 1))
+        return 1
     fi
 }
 
@@ -147,6 +165,7 @@ main() {
     log_info "=== Validation Summary ==="
     log_info "Files checked: $CHECKED_COUNT"
     log_info "Tekton resources validated: $VALIDATED_COUNT"
+    log_info "Files skipped (not Tekton resources): $SKIPPED_COUNT"
 
     if [[ $ERROR_COUNT -eq 0 ]]; then
         log_success "All validations passed! ✓"

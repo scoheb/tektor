@@ -43,8 +43,12 @@ jobs:
         with:
           fail-on-error: true
           verbose: true
-          params: 'taskGitUrl=https://github.com/tektoncd/catalog,gitRevision=main'
-          pac-params: 'revision=main,branch=development'
+          params: |
+            taskGitUrl=https://github.com/tektoncd/catalog
+            gitRevision=main
+          pac-params: |
+            revision=main
+            branch=development
 ```
 
 ## Method 2: Reusable Workflow ⭐ Best Practice
@@ -74,7 +78,7 @@ Tektor supports two types of parameters to customize validation behavior:
 
 ### Runtime Parameters (`params`)
 
-Runtime parameters are used for Tekton parameter substitution within your pipeline and task definitions. These help resolve parameter references like `$(params.paramName)` during validation.
+Runtime parameters are used for Tekton parameter substitution within your pipeline and task definitions. These help resolve parameter references like `$(params.paramName)` during validation. Use the multi-line format with one parameter per line:
 
 ```yaml
 - name: Validate Tekton resources
@@ -82,12 +86,15 @@ Runtime parameters are used for Tekton parameter substitution within your pipeli
   env:
     CHANGED_FILES: ${{ steps.changed-files.outputs.all_changed_files }}
   with:
-    params: 'taskGitUrl=https://github.com/tektoncd/catalog,gitRevision=main,imageTag=v1.0.0'
+    params: |
+      taskGitUrl=https://github.com/tektoncd/catalog
+      gitRevision=main
+      imageTag=v1.0.0
 ```
 
 ### PaC Template Parameters (`pac-params`)
 
-PaC (Pipelines as Code) template parameters are used for PaC template substitution and preprocessing before validation.
+PaC (Pipelines as Code) template parameters are used for PaC template substitution and preprocessing before validation. Use the multi-line format with one parameter per line:
 
 ```yaml
 - name: Validate Tekton resources
@@ -95,7 +102,10 @@ PaC (Pipelines as Code) template parameters are used for PaC template substituti
   env:
     CHANGED_FILES: ${{ steps.changed-files.outputs.all_changed_files }}
   with:
-    pac-params: 'revision=main,branch=development,environment=staging'
+    pac-params: |
+      revision=main
+      branch=development
+      environment=staging
 ```
 
 ### Using Both Parameter Types
@@ -110,8 +120,12 @@ You can use both parameter types together for comprehensive validation:
   with:
     fail-on-error: true
     verbose: true
-    params: 'taskGitUrl=https://github.com/tektoncd/catalog,gitRevision=main'
-    pac-params: 'revision=main,branch=development'
+    params: |
+      taskGitUrl=https://github.com/tektoncd/catalog
+      gitRevision=main
+    pac-params: |
+      revision=main
+      branch=development
 ```
 
 ### Dynamic Parameter Values
@@ -124,8 +138,12 @@ Parameters can be dynamically set using GitHub Actions expressions:
   env:
     CHANGED_FILES: ${{ steps.changed-files.outputs.all_changed_files }}
   with:
-    params: 'gitRevision=${{ github.sha }},branch=${{ github.ref_name }}'
-    pac-params: 'revision=${{ github.event.pull_request.head.sha || github.sha }}'
+    params: |
+      gitRevision=${{ github.sha }}
+      branch=${{ github.ref_name }}
+      taskGitUrl=${{ github.event.pull_request.head.repo.html_url }}
+    pac-params: |
+      revision=${{ github.event.pull_request.head.sha || github.sha }}
 ```
 
 ## Advanced Usage Examples
@@ -142,7 +160,9 @@ Parameters can be dynamically set using GitHub Actions expressions:
   with:
     fail-on-error: false
     verbose: true
-    params: 'gitRevision=${{ github.sha }},repoUrl=${{ github.event.repository.clone_url }}'
+    params: |
+      gitRevision=${{ github.sha }}
+      repoUrl=${{ github.event.repository.clone_url }}
 
 - name: Comment on PR if validation failed
   if: steps.validate.outputs.validation-errors != '0'
