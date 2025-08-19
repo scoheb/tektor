@@ -10,8 +10,12 @@ import (
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/hashicorp/go-multierror"
 	v1 "github.com/tektoncd/pipeline/pkg/apis/pipeline/v1"
+	"github.com/tektoncd/pipeline/pkg/apis/resolution/v1beta1"
+	"github.com/tektoncd/pipeline/pkg/remoteresolution/resolver/git"
 	"github.com/tektoncd/pipeline/pkg/resolution/resolver/bundle"
-	"github.com/tektoncd/pipeline/pkg/resolution/resolver/git"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/clientcmd"
+	knativeclient "knative.dev/pkg/client/injection/kube/client"
 	"sigs.k8s.io/yaml"
 )
 
@@ -123,12 +127,19 @@ func taskSpecFromPipelineTask(ctx context.Context, pipelineTask v1.PipelineTask,
 
 	resolvedParams := resolveParamsInTaskRefParams(pipelineTask.TaskRef.Params, runtimeParams)
 
+	var err error
+	// A kube client is needed for the resolvers even when no kubernetes interaction is made.
+	ctx, err = injectDummyKubeClient(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("injecting kube client: %w", err)
+	}
+
 	if pipelineTask.TaskRef != nil && pipelineTask.TaskRef.Resolver == "bundles" {
-		// Since the pipeline is already resolved by PaC, we can use the params as-is
 		opts, err := bundleResolverOptions(ctx, resolvedParams)
 		if err != nil {
 			return nil, err
 		}
+
 		resolvedResource, err := bundle.GetEntry(ctx, authn.DefaultKeychain, opts)
 		if err != nil {
 			return nil, err
@@ -143,15 +154,14 @@ func taskSpecFromPipelineTask(ctx context.Context, pipelineTask v1.PipelineTask,
 	}
 
 	if pipelineTask.TaskRef != nil && pipelineTask.TaskRef.Resolver == "git" {
-		// Apply runtime parameter substitution to TaskRef params
-		params, err := git.PopulateDefaultParams(ctx, resolvedParams)
-		if err != nil {
-			return nil, err
+		resolver := git.Resolver{}
+		if err := resolver.Initialize(ctx); err != nil {
+			return nil, fmt.Errorf("initializing git resolver: %w", err)
 		}
 
-		resolvedResource, err := git.ResolveAnonymousGit(ctx, params)
+		resolvedResource, err := resolver.Resolve(ctx, &v1beta1.ResolutionRequestSpec{Params: resolvedParams})
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("resolving git: %w", err)
 		}
 
 		var t v1.Task
@@ -185,4 +195,19 @@ func bundleResolverOptions(ctx context.Context, params v1.Params) (bundle.Reques
 
 	allParams = append(allParams, params...)
 	return bundle.OptionsFromParams(ctx, allParams)
+}
+
+// injectDummyKubeClient creates and adds a kube client to the context.
+func injectDummyKubeClient(ctx context.Context) (context.Context, error) {
+	config, err := clientcmd.BuildConfigFromFlags("IGNORED", "")
+	if err != nil {
+		return nil, fmt.Errorf("building kubeconfig: %w", err)
+	}
+
+	kubectl, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return nil, fmt.Errorf("creating new for config: %w", err)
+	}
+
+	return context.WithValue(ctx, knativeclient.Key{}, kubectl), nil
 }
