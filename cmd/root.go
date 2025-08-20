@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -17,6 +18,14 @@ var rootCmd = &cobra.Command{
 
 func Execute() {
 	if err := rootCmd.ExecuteContext(context.Background()); err != nil {
+		// Check if it's an unsupported resource error
+		var unsupportedErr validate.UnsupportedResourceError
+		if errors.As(err, &unsupportedErr) {
+			// Print the message and exit with code 2 for unsupported resources
+			os.Stderr.WriteString(unsupportedErr.Message + "\n")
+			os.Exit(2)
+		}
+		// For all other errors, exit with code 1
 		os.Exit(1)
 	}
 }

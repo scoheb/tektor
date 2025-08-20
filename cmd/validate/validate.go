@@ -16,6 +16,16 @@ import (
 	"github.com/lcarva/tektor/internal/validator"
 )
 
+// UnsupportedResourceError indicates a file is not a supported Tekton resource
+type UnsupportedResourceError struct {
+	Filename string
+	Message  string
+}
+
+func (e UnsupportedResourceError) Error() string {
+	return e.Message
+}
+
 var (
 	runtimeParams []string
 	pacParams     []string
@@ -117,7 +127,10 @@ func run(ctx context.Context, fname string, runtimeParams map[string]string, pac
 			return err
 		}
 	default:
-		return fmt.Errorf("%s is not supported", key)
+		return UnsupportedResourceError{
+			Filename: fname,
+			Message:  fmt.Sprintf("%s is not supported as a Tekton resource", fname),
+		}
 	}
 
 	return nil

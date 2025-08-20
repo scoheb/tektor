@@ -1,0 +1,61 @@
+name: 'Tektor Tekton Validator'
+description: 'Validate Tekton pipelines and tasks in a PR using tektor'
+author: 'Konflux CI Team'
+
+branding:
+  icon: 'check-circle'
+  color: 'blue'
+
+inputs:
+  fail-on-error:
+    description: 'Whether to fail the action if validation errors are found'
+    required: false
+    default: 'true'
+
+  verbose:
+    description: 'Enable verbose output'
+    required: false
+    default: 'false'
+
+  params:
+    description: 'Runtime parameters for Tekton parameter substitution. Use multi-line format (one param per line)'
+    required: false
+    default: ''
+
+  pac-params:
+    description: 'PaC template parameters for PaC template substitution. Use multi-line format (one param per line)'
+    required: false
+    default: ''
+
+outputs:
+  validated-files:
+    description: 'Number of files that were validated'
+
+  validation-errors:
+    description: 'Number of validation errors found'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Setup Go
+      uses: actions/setup-go@v4
+      with:
+        go-version-file: '${{ github.action_path }}/go.mod'
+
+    - name: Build tektor
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      run: |
+        echo "Building tektor..."
+        go build -o ./build/tektor main.go
+        chmod +x ./build/tektor
+
+    - name: Validate Tekton resources
+      shell: bash
+      env:
+        FAIL_ON_ERROR: ${{ inputs.fail-on-error }}
+        VERBOSE: ${{ inputs.verbose }}
+        TEKTOR_PARAMS: ${{ inputs.params }}
+        TEKTOR_PAC_PARAMS: ${{ inputs.pac-params }}
+      run: |
+        ${{ github.action_path }}/validate.sh
