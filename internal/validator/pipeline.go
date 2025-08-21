@@ -172,6 +172,19 @@ func taskSpecFromPipelineTask(ctx context.Context, pipelineTask v1.PipelineTask,
 		return &t.Spec, nil
 	}
 
+	// Fallback: if a local task directory is provided, try to resolve by TaskRef.Name
+	if pipelineTask.TaskRef != nil && pipelineTask.TaskRef.Resolver == "" && pipelineTask.TaskRef.Name != "" {
+		if dir := taskDirFromContext(ctx); dir != "" {
+			spec, err := findTaskSpecInDir(ctx, dir, pipelineTask.TaskRef.Name)
+			if err != nil {
+				return nil, fmt.Errorf("resolving local task from --task-dir: %w", err)
+			}
+			if spec != nil {
+				return spec, nil
+			}
+		}
+	}
+
 	return nil, errors.New("unable to retrieve spec for pipeline task")
 }
 
